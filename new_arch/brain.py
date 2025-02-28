@@ -4,6 +4,7 @@ import queue
 from shell import InteractiveShell
 import discord
 import asyncio
+from agent import MistralAgent
 
 
 
@@ -26,7 +27,7 @@ class Brain:
         # start a thread on brain_main
         self.mthread = threading.Thread(target=self._brain_main)
         self.mthread.start()
-
+        self.agent = MistralAgent()
         
 
     def _drain_shell(self, line: str):
@@ -55,11 +56,24 @@ class Brain:
             # check if there is a message in the incoming_msg_buffer
             if not self.incoming_msg_buffer.empty():
                 msg = self.incoming_msg_buffer.get()
-                print(f"sending \"{msg}\" to shell")
-                self.shell.execute_command(msg)     # this shouldn't block
+
+
+                completion = self.agent.run(msg)
+
+
+                # if 'rm' in completion:
+                #     continue
+
+
+                #self._drain_shell(completion)
+
+                print(f"sending \"{completion}\" to shell")
+                
+                self.shell.execute_command(completion)     # this shouldn't block
 
             # check if there is a new message in the shell_out_buffer
-            ...
+
+
 
     async def _send_discord_msg(self, msg: str):
         print("Channel:", self.channel)
