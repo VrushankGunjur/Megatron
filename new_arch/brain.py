@@ -8,9 +8,9 @@ import asyncio
 
 
 class Brain:
-    global brain_online
-    def __init__(self, channel):
-        self.channel = channel
+
+    def __init__(self):
+        self.channel = None
         self.discord_loop = None
 
         self.chat_state = queue.Queue()
@@ -35,6 +35,7 @@ class Brain:
         print(line)
         # loop = self.discord_loop()
         if self.discord_loop is not None and self.discord_loop.is_running():
+            print("Trying to send discord msg back..")
             asyncio.run_coroutine_threadsafe(self._send_discord_msg(line), self.discord_loop)
 
     def __del__(self):
@@ -54,11 +55,14 @@ class Brain:
             # check if there is a message in the incoming_msg_buffer
             if not self.incoming_msg_buffer.empty():
                 msg = self.incoming_msg_buffer.get()
-                print(f"sending {msg} to shell")
+                print(f"sending \"{msg}\" to shell")
                 self.shell.execute_command(msg)     # this shouldn't block
 
             # check if there is a new message in the shell_out_buffer
             ...
 
     async def _send_discord_msg(self, msg: str):
+        print("Channel:", self.channel)
+        print("Event loop:", self.discord_loop)
+        print(f"sending \"{msg}\" to discord")
         await self.channel.send(msg)

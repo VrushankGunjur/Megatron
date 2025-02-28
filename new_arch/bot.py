@@ -38,10 +38,9 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 # Get the token from the environment variables
 token = os.getenv("DISCORD_TOKEN")
-channel = bot.get_channel(1339738567177670748)
+# channel = bot.get_channel(1339738567177670748)
 
-
-brain = Brain(channel)
+brain = Brain()
 
 
 @bot.event
@@ -54,6 +53,7 @@ async def on_ready():
     """
     logger.info(f"{bot.user} has connected to Discord!")
     brain.discord_loop = asyncio.get_running_loop()
+    brain.channel = bot.get_channel(1339738567177670748)
 
 @bot.command()
 async def myid(ctx):
