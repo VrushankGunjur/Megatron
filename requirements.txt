@@ -5,3 +5,4 @@ langchain-mistralai
 langchain-core
 langchain
 langgraph
+dspy

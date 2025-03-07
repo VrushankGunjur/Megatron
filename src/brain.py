@@ -12,6 +12,7 @@ from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain.schema import SystemMessage
+from langchain_core.messages import ToolMessage, AIMessage
 
 from langchain_mistralai import ChatMistralAI
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -19,8 +20,10 @@ from langchain_core.tools import tool
 from langchain_core.rate_limiters import InMemoryRateLimiter
 
 import logging
-import pprint
+import dspy
 
+from mistralLM import Mistral
+from signatures import Replanning, Planning, planning_signature, replanning_prompt
 
 # MISTRAL_SYSPROMPT = "Your task is to translate english to bash commands.
 # Respond in a single bash command that can be run directly in the shell, don't
@@ -29,6 +32,7 @@ import pprint
 
 
 MISTRAL_SYSPROMPT = "You are a Discord bot whose task is to translate english to bash commands. Execute bash commands using the given tools. ALWAYS report command results back to the user via Discord message tool. Before taking any section, generate a plan and follow it until the end."
+
 
 
 class State(TypedDict):
@@ -40,6 +44,7 @@ class State(TypedDict):
 class Brain:
     def __init__(self):
         # self.logger = logging.getLogger("brain")
+        dspy.settings.configure(lm=Mistral(model="mistral-large-latest", api_key="GG92nvhLbocT2jn7YeDmRSK0KmURoGIC"))
 
         self.channel = None
         self.discord_loop = None
@@ -64,71 +69,87 @@ class Brain:
         )
         self.llm = ChatMistralAI(model="mistral-large-latest", rate_limiter=self.rate_limiter)
 
-        @tool
-        def send_discord_msg_tool(msg: str) -> str:
-            """Send a message to Discord.
-            Args:
-                cmd: Bash shell command string.
-            """
+        # Passed into lang graph for routing between continuing and ending
+        # AGENTIC workflow 🌳🦊
+
+        def route_tools(state: State):
+            if isinstance(state, list):
+                last_message = state[-1]
+            elif messages := state.get("messages", []):
+                last_message = messages[-1]
+            else:
+                raise ValueError(f"No messages found in input state to tool_edge: {state}")
+ 
+            if last_message["done"] == "no":
+                return "execute"
             
-            self.send_discord_msg(msg) 
-            return "Message sent to discord!" 
-        
-        @tool
-        def execute_shell_cmd_tool(cmd: str) -> str:
-            """Execute a shell command.
-            Args:
-                cmd: Bash shell command string.
-            """
+            return END
+
+
+        # 👻
+        def planning(state: State) -> State:
+            planner = dspy.Predict(Planning)
+
+            planning_signature = 
             
-            self.shell.execute_command(cmd)
+            response = planner(
+                objective=state["messages"][-1].content
+            )
+
+            #messages = [planning_prompt] + state["messages"]
+            #response = self.llm.invoke(messages)
+            return {
+                "messages": state["messages"] + [planning_signature, AIMessage(content=response.plan)],
+                "done": state.done
+            }
+            
+        def execution(state: State):
+            execution_prompt = SystemMessage(content="""
+                You are given a plan to enact a user's intent on a terminal
+                shell. You are also given all of the commands that have been ran
+                and their outputs so far. Your job is to come up with a bash command to run to
+                achieve the next objective that hasn't been completed. 
+            """)
+            
+            messages = [execution_prompt] + state["messages"]
+            response = self.llm.invoke(messages)
+            self.shell.execute(response.content)
+
+            cur_shell_outputs = []
 
             time.sleep(1)
-
-            outputs = []
-
             while not self.shell_out_buffer.empty():
-                outputs.append(self.shell_out_buffer.get())
+                cur_shell_outputs.append(self.shell_out_buffer.get())
 
-            return "Outputs:\n" + "\n".join(outputs)
-        
-        # @tool
-        # def get_shell_output_tool() -> str:
-        #     """Get all unseen output from the shell."""
+            tool_output = ToolMessage(content="Shell output:\n" + "\n".join(cur_shell_outputs))
+            return {
+                "messages": state["messages"] + [execution_prompt, AIMessage(content=response), ToolMessage(content=tool_output)],
+                "done": state.done
+            }
+
+        def replanning(state: State):
+            replanner = dspy.Predict(Replanning)
+            response = replanner(
+                history=[item.content for item in state["messages"]]
+            )
+
+
+            # TODO: add response 
             
-        #     outputs = []
+            return {
+                "messages": state["messages"] + [SystemMessage(content=replanning_prompt), SystemMessage(content=response.new_plan)],
+                "done": response.done
+            }
 
-        #     while not self.shell_out_buffer.empty():
-        #         outputs.append(self.shell_out_buffer.get())
+        self.graph_builder.add_node("planning", planning)
+        self.graph_builder.add_node("execution", execution)
+        self.graph_builder.add_node("replanning", replanning)
+        
+        self.graph_builder.add_edge(START, "planning")
 
-        #     print("Get shell tool is returning", outputs)
-
-        #     return "\n".join(outputs)
-
-        # Set up tools
-        self.tools = [send_discord_msg_tool, execute_shell_cmd_tool]
-        self.llm = self.llm.bind_tools(self.tools)
-
-        self.tool_node = ToolNode(tools=self.tools)
-
-        # Constructing the graph
-        self.graph_builder.add_node("chatbot", self.chatbot)
-        self.graph_builder.add_node("tools", self.tool_node)
-
-        self.graph_builder.add_conditional_edges(
-            "chatbot",
-            tools_condition,
-        )
-
-        # self.graph_builder.add_edge("tools", "chatbot")
-        self.graph_builder.set_entry_point("chatbot")
-
-        # TODO(waitz): do we need to set END?
-        # self.graph_builder.add_edge(START, "chatbot")
-
-        self.graph_builder.add_edge("tools", "chatbot")
-
-        # self.graph_builder.add_edge("chatbot", END)
+        self.graph_builder.add_edge("planning", "execution")
+        self.graph_builder.add_edge("execution", "replanning")
+        self.graph_builder.add_conditional_edges("replanning", route_tools)
 
         self.graph = self.graph_builder.compile()
 
@@ -136,10 +157,6 @@ class Brain:
         self.mthread = threading.Thread(target=self._brain_main)
         self.mthread.start()
         # self.agent = MistralAgent()
-
-    def chatbot(self, state: State):
-        message = self.llm.invoke(state["messages"])
-        return {"messages": [message]}
 
     # should only be called by `self.shell` as a callback
     def _drain_shell(self, line: str):
