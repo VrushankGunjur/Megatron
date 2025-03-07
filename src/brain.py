@@ -132,6 +132,15 @@ class Brain:
             messages = state["messages"] + ["PLAN: " + replanning_prompt]
             response = self.replanning_llm.invoke(messages)
 
+            if response.done:
+                for msg in reversed(state["messages"]):
+                    if isinstance(msg, HumanMessage) and msg.content.startswith("Shell output:"):
+                        content = msg.content
+                        content = content.replace("Shell output: \n", "")
+                        content = content.replace("SHELL_READY", "")
+                        self.send_discord_msg(content)
+                        break
+                self.send_discord_msg("All done!")
             # TODO: extract new plan and done from response
             # TODO: Put it back; in chat history 
             
