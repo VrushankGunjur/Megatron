@@ -25,21 +25,20 @@ import dspy
 from mistralLM import Mistral
 from signatures import Replanning, Planning, planning_signature, replanning_prompt
 
+from pydantic import BaseModel, Field
+
 # MISTRAL_SYSPROMPT = "Your task is to translate english to bash commands.
 # Respond in a single bash command that can be run directly in the shell, don't
 # use any formatting and respond in plaintext"
 
-
-
 MISTRAL_SYSPROMPT = "You are a Discord bot whose task is to translate english to bash commands. Execute bash commands using the given tools. ALWAYS report command results back to the user via Discord message tool. Before taking any section, generate a plan and follow it until the end."
-
-
 
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
     # in the annotation defines how this state key should be updated
     # (in this case, it appends messages to the list, rather than overwriting them)
     messages: Annotated[list, add_messages]
+    plan: Annotated[list, add_messages]
 
 class Brain:
     def __init__(self):
@@ -85,22 +84,15 @@ class Brain:
             
             return END
 
-
         # 👻
         def planning(state: State) -> State:
-            planner = dspy.Predict(Planning)
+            # planner = dspy.Predict(Planning)
 
-            planning_signature = 
+            response = self.llm.invoke(state["messages"][-1].content, planning_signature)
             
-            response = planner(
-                objective=state["messages"][-1].content
-            )
-
-            #messages = [planning_prompt] + state["messages"]
-            #response = self.llm.invoke(messages)
             return {
                 "messages": state["messages"] + [planning_signature, AIMessage(content=response.plan)],
-                "done": state.done
+                "done": False
             }
             
         def execution(state: State):
@@ -108,7 +100,8 @@ class Brain:
                 You are given a plan to enact a user's intent on a terminal
                 shell. You are also given all of the commands that have been ran
                 and their outputs so far. Your job is to come up with a bash command to run to
-                achieve the next objective that hasn't been completed. 
+                achieve the next objective that hasn't been completed. Please
+                generate only a bash command with no other text.
             """)
             
             messages = [execution_prompt] + state["messages"]
@@ -122,19 +115,17 @@ class Brain:
                 cur_shell_outputs.append(self.shell_out_buffer.get())
 
             tool_output = ToolMessage(content="Shell output:\n" + "\n".join(cur_shell_outputs))
+
             return {
                 "messages": state["messages"] + [execution_prompt, AIMessage(content=response), ToolMessage(content=tool_output)],
                 "done": state.done
             }
 
         def replanning(state: State):
-            replanner = dspy.Predict(Replanning)
-            response = replanner(
-                history=[item.content for item in state["messages"]]
-            )
+            # wrap in SystemPrompt
+            response = self.llm.invoke(state["messages"], "PLAN: " + replanning_prompt)
 
-
-            # TODO: add response 
+            # TODO: extract new plan and done from response
             
             return {
                 "messages": state["messages"] + [SystemMessage(content=replanning_prompt), SystemMessage(content=response.new_plan)],

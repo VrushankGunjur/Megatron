@@ -6,3 +6,4 @@ langchain-core
 langchain
 langgraph
 dspy
+pydantic
