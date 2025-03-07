@@ -6,7 +6,7 @@ import discord
 import asyncio
 from agent import MistralAgent
 from typing import Dict, Any, TypedDict, Annotated
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, START, END
 
 
 class BrainState(TypedDict):
@@ -53,6 +53,7 @@ class Brain:
         graph.add_node("handle_shell_output", self._handle_shell_output)
         
         # Define the edges
+        graph.add_edge(START, "process_message")
         graph.add_edge("process_message", "execute_command")
         graph.add_edge("execute_command", "handle_shell_output")
         graph.add_edge("handle_shell_output", END)
