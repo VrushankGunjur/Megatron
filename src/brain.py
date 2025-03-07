@@ -122,6 +122,13 @@ class Brain:
             tool_content_string = f"Shell output: \n {'\n'.join(cur_shell_outputs)}"
             tool_output = HumanMessage(content=tool_content_string)
 
+            if "[ERROR]" in tool_content_string:
+                self.send_discord_msg("Error: " + tool_content_string)
+                return {
+                    "messages": state["messages"],
+                    "done": True
+                }
+
             return {
                 "messages": state["messages"] + [execution_prompt, AIMessage(content=response.command), tool_output],
                 "done": False
@@ -184,7 +191,6 @@ class Brain:
     def _brain_main(self):
         while True:
             time.sleep(1)
-            print("Brain taking a step.")
 
             # check if there is a message in the incoming_msg_buffer
             if not self.incoming_msg_buffer.empty():
@@ -193,7 +199,7 @@ class Brain:
 
                 # Prompting, interacting with shell, and responding to discord happens
                 # in lang graph
-                output = self.graph.invoke({"messages": [sys_prompt, msg]}, debug=True)
+                output = self.graph.invoke({"messages": [sys_prompt, msg]}, {"recursion_limit": 100}, debug=True)
 
                 print(f"Output from graph:")
                 pprint.pprint(output)
