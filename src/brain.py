@@ -16,6 +16,8 @@ from langchain_mistralai import ChatMistralAI
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.tools import tool
 
+import logging
+
 
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
@@ -23,10 +25,10 @@ class State(TypedDict):
     # (in this case, it appends messages to the list, rather than overwriting them)
     messages: Annotated[list, add_messages]
 
-# graph_builder = StateGraph(State)
-
 class Brain:
     def __init__(self):
+        # self.logger = logging.getLogger("brain")
+
         self.channel = None
         self.discord_loop = None
 
@@ -128,6 +130,8 @@ class Brain:
                 # Prompting, interacting with shell, and responding to discord happens
                 # in lang graph
                 output = self.graph.invoke({"messages": [msg]})
+
+                print(f"Output from graph: {output}")
 
                 # completion = self.agent.run(msg)
 
