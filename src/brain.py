@@ -11,12 +11,24 @@ from typing_extensions import TypedDict
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langchain.schema import SystemMessage
 
 from langchain_mistralai import ChatMistralAI
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.tools import tool
+from langchain_core.rate_limiters import InMemoryRateLimiter
 
 import logging
+import pprint
+
+
+# MISTRAL_SYSPROMPT = "Your task is to translate english to bash commands.
+# Respond in a single bash command that can be run directly in the shell, don't
+# use any formatting and respond in plaintext"
+
+
+
+MISTRAL_SYSPROMPT = "You are a Discord bot whose task is to translate english to bash commands. Execute bash commands using the given tools. ALWAYS report command results back to the user via Discord message tool. Before taking any section, generate a plan and follow it until the end."
 
 
 class State(TypedDict):
@@ -41,18 +53,60 @@ class Brain:
         self.shell = InteractiveShell()
         self.shell.set_output_callback(self._drain_shell)
         self.shell.start()
-
-        # start a thread on brain_main
-        self.mthread = threading.Thread(target=self._brain_main)
-        self.mthread.start()
-        self.agent = MistralAgent()
-
+    
+    def start(self):
         # Lang graph setup
         self.graph_builder = StateGraph(State)
-        self.llm = ChatMistralAI(model="mistral-large-latest")
+        self.rate_limiter = InMemoryRateLimiter(
+            requests_per_second=0.1,  # <-- Super slow! We can only make a request once every 10 seconds!!
+            check_every_n_seconds=0.1,  # Wake up every 100 ms to check whether allowed to make a request,
+            max_bucket_size=10,  # Controls the maximum burst size.
+        )
+        self.llm = ChatMistralAI(model="mistral-large-latest", rate_limiter=self.rate_limiter)
+
+        @tool
+        def send_discord_msg_tool(msg: str) -> str:
+            """Send a message to Discord.
+            Args:
+                cmd: Bash shell command string.
+            """
+            
+            self.send_discord_msg(msg) 
+            return "Message sent to discord!" 
+        
+        @tool
+        def execute_shell_cmd_tool(cmd: str) -> str:
+            """Execute a shell command.
+            Args:
+                cmd: Bash shell command string.
+            """
+            
+            self.shell.execute_command(cmd)
+
+            time.sleep(1)
+
+            outputs = []
+
+            while not self.shell_out_buffer.empty():
+                outputs.append(self.shell_out_buffer.get())
+
+            return "Outputs:\n" + "\n".join(outputs)
+        
+        # @tool
+        # def get_shell_output_tool() -> str:
+        #     """Get all unseen output from the shell."""
+            
+        #     outputs = []
+
+        #     while not self.shell_out_buffer.empty():
+        #         outputs.append(self.shell_out_buffer.get())
+
+        #     print("Get shell tool is returning", outputs)
+
+        #     return "\n".join(outputs)
 
         # Set up tools
-        self.tools = [self.send_discord_msg_tool, self.execute_shell_cmd_tool, self.get_shell_output_tool]
+        self.tools = [send_discord_msg_tool, execute_shell_cmd_tool]
         self.llm = self.llm.bind_tools(self.tools)
 
         self.tool_node = ToolNode(tools=self.tools)
@@ -67,41 +121,25 @@ class Brain:
         )
 
         # self.graph_builder.add_edge("tools", "chatbot")
-        # self.graph_builder.set_entry_point("chatbot")
+        self.graph_builder.set_entry_point("chatbot")
 
         # TODO(waitz): do we need to set END?
-        self.graph_builder.add_edge(START, "chatbot")
+        # self.graph_builder.add_edge(START, "chatbot")
 
         self.graph_builder.add_edge("tools", "chatbot")
-        # self.graph_builder.add_edge("chatbot", "tools")
 
-        self.graph_builder.add_edge("chatbot", END)
+        # self.graph_builder.add_edge("chatbot", END)
 
         self.graph = self.graph_builder.compile()
-        
+
+        # start a thread on brain_main
+        self.mthread = threading.Thread(target=self._brain_main)
+        self.mthread.start()
+        # self.agent = MistralAgent()
+
     def chatbot(self, state: State):
         message = self.llm.invoke(state["messages"])
         return {"messages": [message]}
-
-    # Define tools
-    @tool
-    def send_discord_msg_tool(self, msg: str):
-        self.send_discord_msg(msg)
-        return "Message sent to discord!"
-
-    @tool
-    def execute_shell_cmd_tool(self, cmd: str):
-        self.shell.execute_command(cmd)
-        return "Command executed!"
-    
-    @tool
-    def get_shell_output_tool(self):
-        outputs = []
-
-        while not self.shell_out_buffer.empty():
-            outputs.append(self.shell_out_buffer.get_nowait())
-
-        return "\n".join(outputs)
 
     # should only be called by `self.shell` as a callback
     def _drain_shell(self, line: str):
@@ -125,13 +163,15 @@ class Brain:
 
             # check if there is a message in the incoming_msg_buffer
             if not self.incoming_msg_buffer.empty():
+                sys_prompt = SystemMessage(MISTRAL_SYSPROMPT)
                 msg = self.incoming_msg_buffer.get()
 
                 # Prompting, interacting with shell, and responding to discord happens
                 # in lang graph
-                output = self.graph.invoke({"messages": [msg]})
+                output = self.graph.invoke({"messages": [sys_prompt, msg]}, debug=True)
 
-                print(f"Output from graph: {output}")
+                print(f"Output from graph:")
+                pprint.pprint(output)
 
                 # completion = self.agent.run(msg)
 

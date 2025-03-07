@@ -22,7 +22,7 @@ print(os.getenv("SSL_CERT_FILE"))
 # Setup logging
 logger = logging.getLogger("discord")
 
-ALLOWED_USER_IDS = {269194364201336832} # , 249749629229465611, 203260138247684096, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
+ALLOWED_USER_IDS = {203260138247684096} # , 249749629229465611, 203260138247684096, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
 
 # Load the environment variables
 load_dotenv()
@@ -54,6 +54,7 @@ async def on_ready():
     logger.info(f"{bot.user} has connected to Discord!")
     brain.discord_loop = asyncio.get_running_loop()
     brain.channel = bot.get_channel(1339738567177670748)
+    brain.start()
 
 @bot.command()
 async def myid(ctx):
