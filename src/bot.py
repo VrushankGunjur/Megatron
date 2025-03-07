@@ -22,7 +22,7 @@ print(os.getenv("SSL_CERT_FILE"))
 # Setup logging
 logger = logging.getLogger("discord")
 
-ALLOWED_USER_IDS = {203260138247684096} # , 249749629229465611, 203260138247684096, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
+ALLOWED_USER_IDS = {203260138247684096, 249749629229465611, 203260138247684096, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
 
 # Load the environment variables
 load_dotenv()

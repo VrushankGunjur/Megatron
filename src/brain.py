@@ -12,17 +12,17 @@ from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain.schema import SystemMessage
-from langchain_core.messages import ToolMessage, AIMessage
+from langchain_core.messages import ToolMessage, AIMessage, HumanMessage
 
 from langchain_mistralai import ChatMistralAI
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.tools import tool
 from langchain_core.rate_limiters import InMemoryRateLimiter
+import pprint
 
 import logging
 import dspy
 
-from mistralLM import Mistral
 from signatures import Replanning, Planning, planning_signature, replanning_prompt
 
 from pydantic import BaseModel, Field
@@ -32,6 +32,18 @@ from pydantic import BaseModel, Field
 # use any formatting and respond in plaintext"
 
 MISTRAL_SYSPROMPT = "You are a Discord bot whose task is to translate english to bash commands. Execute bash commands using the given tools. ALWAYS report command results back to the user via Discord message tool. Before taking any section, generate a plan and follow it until the end."
+
+class ReplanningFormatter(BaseModel):
+    new_plan: str = Field(description="The new plan to begin executing.")
+    done: bool = Field(description="Should continue executing commands.")
+
+class PlanningFormatter(BaseModel):
+    plan: str = Field(description="The step-by-step plan outlining how to achieve the objective")
+
+class ExecutionFormatter(BaseModel):
+    command: str = Field(description="The bash command to execute next")
+
+# parser = PydanticOutputParser(pydantic_object=ReplanningFormatter)
 
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
@@ -43,13 +55,9 @@ class State(TypedDict):
 class Brain:
     def __init__(self):
         # self.logger = logging.getLogger("brain")
-        dspy.settings.configure(lm=Mistral(model="mistral-large-latest", api_key="GG92nvhLbocT2jn7YeDmRSK0KmURoGIC"))
 
         self.channel = None
         self.discord_loop = None
-
-        # self.chat_state = queue.Queue()
-        # self.shell_state = queue.Queue()
         
         self.incoming_msg_buffer = queue.Queue()        # thread safe
         self.shell_out_buffer = queue.Queue()           # thread safe
@@ -68,27 +76,24 @@ class Brain:
         )
         self.llm = ChatMistralAI(model="mistral-large-latest", rate_limiter=self.rate_limiter)
 
+        self.planning_llm = self.llm.with_structured_output(PlanningFormatter)
+        self.execution_llm = self.llm.with_structured_output(ExecutionFormatter)
+        self.replanning_llm = self.llm.with_structured_output(ReplanningFormatter)
+
         # Passed into lang graph for routing between continuing and ending
         # AGENTIC workflow 🌳🦊
 
         def route_tools(state: State):
-            if isinstance(state, list):
-                last_message = state[-1]
-            elif messages := state.get("messages", []):
-                last_message = messages[-1]
-            else:
-                raise ValueError(f"No messages found in input state to tool_edge: {state}")
- 
-            if last_message["done"] == "no":
-                return "execute"
-            
-            return END
+            if state["done"]:
+                return END
+            else: 
+                return "execution"
 
         # 👻
         def planning(state: State) -> State:
             # planner = dspy.Predict(Planning)
 
-            response = self.llm.invoke(state["messages"][-1].content, planning_signature)
+            response = self.planning_llm.invoke(state["messages"][-1].content + planning_signature)
             
             return {
                 "messages": state["messages"] + [planning_signature, AIMessage(content=response.plan)],
@@ -96,7 +101,7 @@ class Brain:
             }
             
         def execution(state: State):
-            execution_prompt = SystemMessage(content="""
+            execution_prompt = HumanMessage(content="""
                 You are given a plan to enact a user's intent on a terminal
                 shell. You are also given all of the commands that have been ran
                 and their outputs so far. Your job is to come up with a bash command to run to
@@ -104,31 +109,34 @@ class Brain:
                 generate only a bash command with no other text.
             """)
             
-            messages = [execution_prompt] + state["messages"]
-            response = self.llm.invoke(messages)
-            self.shell.execute(response.content)
+            messages = state["messages"] + [execution_prompt] 
+            response = self.execution_llm.invoke(messages)
+            self.shell.execute_command(response.command)
 
             cur_shell_outputs = []
 
             time.sleep(1)
             while not self.shell_out_buffer.empty():
                 cur_shell_outputs.append(self.shell_out_buffer.get())
-
-            tool_output = ToolMessage(content="Shell output:\n" + "\n".join(cur_shell_outputs))
+            
+            tool_content_string = f"Shell output: \n {'\n'.join(cur_shell_outputs)}"
+            tool_output = HumanMessage(content=tool_content_string)
 
             return {
-                "messages": state["messages"] + [execution_prompt, AIMessage(content=response), ToolMessage(content=tool_output)],
-                "done": state.done
+                "messages": state["messages"] + [execution_prompt, AIMessage(content=response.command), tool_output],
+                "done": False
             }
 
         def replanning(state: State):
             # wrap in SystemPrompt
-            response = self.llm.invoke(state["messages"], "PLAN: " + replanning_prompt)
+            messages = state["messages"] + ["PLAN: " + replanning_prompt]
+            response = self.replanning_llm.invoke(messages)
 
             # TODO: extract new plan and done from response
+            # TODO: Put it back; in chat history 
             
             return {
-                "messages": state["messages"] + [SystemMessage(content=replanning_prompt), SystemMessage(content=response.new_plan)],
+                "messages": state["messages"] + ["PLAN: " + replanning_prompt, AIMessage(content=response.new_plan)],
                 "done": response.done
             }
 
@@ -140,7 +148,7 @@ class Brain:
 
         self.graph_builder.add_edge("planning", "execution")
         self.graph_builder.add_edge("execution", "replanning")
-        self.graph_builder.add_conditional_edges("replanning", route_tools)
+        self.graph_builder.add_conditional_edges("replanning", route_tools, {END: END, "execution": "execution"})
 
         self.graph = self.graph_builder.compile()
 
