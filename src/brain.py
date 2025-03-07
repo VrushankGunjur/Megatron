@@ -57,13 +57,12 @@ class Brain:
             if not self.incoming_msg_buffer.empty():
                 msg = self.incoming_msg_buffer.get()
 
-
+                print(f"Calling agent on {msg}")
                 completion = self.agent.run(msg)
 
 
                 # if 'rm' in completion:
                 #     continue
-
 
                 #self._drain_shell(completion)
 
