@@ -13,7 +13,7 @@ import logging
 class Brain:
 
     def __init__(self):
-        self.logger = logging.getLogger("brain")
+        # self.logger = logging.getLogger("brain")
 
         self.channel = None
         self.discord_loop = None
@@ -38,10 +38,10 @@ class Brain:
     def _drain_shell(self, line: str):
         self.shell_out_buffer.put(line)
         
-        self.logger.info(line)
+        print(line)
         # loop = self.discord_loop()
         if self.discord_loop is not None and self.discord_loop.is_running():
-            self.logger.info("Trying to send discord msg back..")
+            print("Trying to send discord msg back..")
             asyncio.run_coroutine_threadsafe(self._send_discord_msg(line), self.discord_loop)
 
     def __del__(self):
@@ -50,19 +50,19 @@ class Brain:
 
     def submit_msg(self, msg: str):
         # this should only be called externally
-        self.logger.info(f"submitting msg: {msg}")
+        print(f"submitting msg: {msg}")
         self.incoming_msg_buffer.put(msg)
 
     def _brain_main(self):
         while True:
             time.sleep(1)
-            self.logger.info("Hello from Brain")
+            print("Hello from Brain")
 
             # check if there is a message in the incoming_msg_buffer
             if not self.incoming_msg_buffer.empty():
                 msg = self.incoming_msg_buffer.get()
 
-                self.logger.info(f"Calling agent on {msg}")
+                print(f"Calling agent on {msg}")
                 completion = self.agent.run(msg)
 
 
@@ -71,7 +71,7 @@ class Brain:
 
                 # self._drain_shell(completion)
 
-                self.logger.info(f"sending \"{completion}\" to shell")
+                print(f"sending \"{completion}\" to shell")
                 
                 self.shell.execute_command(completion)     # this shouldn't block
 
@@ -80,7 +80,7 @@ class Brain:
 
 
     async def _send_discord_msg(self, msg: str):
-        self.logger.info("Channel:", self.channel)
-        self.logger.info("Event loop:", self.discord_loop)
-        self.logger.info(f"sending \"{msg}\" to discord")
+        print("Channel:", self.channel)
+        print("Event loop:", self.discord_loop)
+        print(f"sending \"{msg}\" to discord")
         await self.channel.send(msg)
