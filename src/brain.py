@@ -19,6 +19,8 @@ class BrainState(TypedDict):
 class Brain:
 
     def __init__(self):
+        # self.logger = logging.getLogger("brain")
+
         self.channel = None
         self.discord_loop = None
 
