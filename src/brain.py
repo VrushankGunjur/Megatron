@@ -75,7 +75,7 @@ class Brain:
     def _execute_command(self, state: BrainState) -> BrainState:
         """Execute the command in the shell."""
         command = state["command"]
-        print(f"sending \"{command}\" to shell")
+        print(f"sending COMMAND: \"{command}\" to shell")
         self.shell.execute_command(command)
         # Note: Shell output will be handled by the callback
         return {"messages": state["messages"], "command": command, "shell_output": "", "current_task": "execute_command"}
