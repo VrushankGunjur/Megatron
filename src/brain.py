@@ -7,10 +7,14 @@ import asyncio
 from agent import MistralAgent
 
 
+import logging
+
 
 class Brain:
 
     def __init__(self):
+        self.logger = logging.getLogger("brain")
+
         self.channel = None
         self.discord_loop = None
 
@@ -28,15 +32,16 @@ class Brain:
         self.mthread = threading.Thread(target=self._brain_main)
         self.mthread.start()
         self.agent = MistralAgent()
+
         
 
     def _drain_shell(self, line: str):
         self.shell_out_buffer.put(line)
         
-        print(line)
+        self.logger.info(line)
         # loop = self.discord_loop()
         if self.discord_loop is not None and self.discord_loop.is_running():
-            print("Trying to send discord msg back..")
+            self.logger.info("Trying to send discord msg back..")
             asyncio.run_coroutine_threadsafe(self._send_discord_msg(line), self.discord_loop)
 
     def __del__(self):
@@ -45,28 +50,28 @@ class Brain:
 
     def submit_msg(self, msg: str):
         # this should only be called externally
-        print(f"submitting msg: {msg}")
+        self.logger.info(f"submitting msg: {msg}")
         self.incoming_msg_buffer.put(msg)
 
     def _brain_main(self):
         while True:
             time.sleep(1)
-            print("Hello from Brain")
+            self.logger.info("Hello from Brain")
 
             # check if there is a message in the incoming_msg_buffer
             if not self.incoming_msg_buffer.empty():
                 msg = self.incoming_msg_buffer.get()
 
-                print(f"Calling agent on {msg}")
+                self.logger.info(f"Calling agent on {msg}")
                 completion = self.agent.run(msg)
 
 
                 # if 'rm' in completion:
                 #     continue
 
-                #self._drain_shell(completion)
+                # self._drain_shell(completion)
 
-                print(f"sending \"{completion}\" to shell")
+                self.logger.info(f"sending \"{completion}\" to shell")
                 
                 self.shell.execute_command(completion)     # this shouldn't block
 
@@ -75,7 +80,7 @@ class Brain:
 
 
     async def _send_discord_msg(self, msg: str):
-        print("Channel:", self.channel)
-        print("Event loop:", self.discord_loop)
-        print(f"sending \"{msg}\" to discord")
+        self.logger.info("Channel:", self.channel)
+        self.logger.info("Event loop:", self.discord_loop)
+        self.logger.info(f"sending \"{msg}\" to discord")
         await self.channel.send(msg)
