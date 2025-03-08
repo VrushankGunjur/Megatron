@@ -23,13 +23,159 @@ import pprint
 import logging
 import dspy
 
-from signatures import Replanning, Planning, planning_signature, replanning_prompt
+from signatures import Replanning, Planning, planning_prompt, replanning_prompt, execution_prompt
 
 from pydantic import BaseModel, Field
 
-# MISTRAL_SYSPROMPT = "Your task is to translate english to bash commands.
-# Respond in a single bash command that can be run directly in the shell, don't
-# use any formatting and respond in plaintext"
+import os
+from langchain.callbacks.tracers import ConsoleCallbackHandler
+from langsmith import Client
+
+from langchain.callbacks.base import BaseCallbackHandler
+from langchain.callbacks import FileCallbackHandler
+
+class LoggingCallbackHandler(BaseCallbackHandler):
+    """Enhanced callback handler that logs LangChain/LangGraph events to a Python logger"""
+    
+    def __init__(self, logger):
+        self.logger = logger
+        self.step_counts = {
+            "llm": 0,
+            "chain": 0,
+            "tool": 0,
+            "retriever": 0
+        }
+        self.start_times = {}
+        
+    def _format_dict(self, obj, max_length=None): 
+        """Format dictionaries"""
+        if isinstance(obj, dict):
+            formatted = {}
+            for k, v in obj.items():
+                if isinstance(v, dict):
+                    formatted[k] = self._format_dict(v)
+                else:
+                    formatted[k] = v
+            return formatted
+        return obj
+    
+    def _get_elapsed_time(self, event_id):
+        """Calculate elapsed time for an event in ms"""
+        if event_id in self.start_times:
+            elapsed = (time.time() - self.start_times[event_id]) * 1000
+            del self.start_times[event_id]
+            return f"({elapsed:.2f}ms)"
+        return ""
+        
+    # LLM events
+    def on_llm_start(self, serialized, prompts, **kwargs):
+        """Log when an LLM starts processing"""
+        self.step_counts["llm"] += 1
+        event_id = f"llm_{self.step_counts['llm']}"
+        self.start_times[event_id] = time.time()
+        
+        model = serialized.get("id", ["unknown"])[-1]
+        self.logger.debug(f"[LLM START] Model: {model}, Prompt tokens: {len(''.join(prompts))//4}")
+        
+        if prompts and self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(f"[LLM PROMPT] {prompts[0]}") 
+        
+    def on_llm_end(self, response, **kwargs):
+        """Log when an LLM completes processing"""
+        event_id = f"llm_{self.step_counts['llm']}"
+        elapsed = self._get_elapsed_time(event_id)
+        
+        # Extract token usage when available
+        token_info = ""
+        if hasattr(response, 'llm_output') and response.llm_output:
+            usage = response.llm_output.get('token_usage', {})
+            if usage:
+                token_info = f"(Input: {usage.get('prompt_tokens', '?')}, " \
+                             f"Output: {usage.get('completion_tokens', '?')}, " \
+                             f"Total: {usage.get('total_tokens', '?')})"
+        
+        self.logger.debug(f"[LLM END] {elapsed} {token_info}")
+        
+        if hasattr(response, 'generations') and response.generations:
+            for i, gen in enumerate(response.generations[0]):
+                if hasattr(gen, 'text'):
+                    self.logger.debug(f"[LLM GEN {i+1}] {gen.text}")  # No truncation
+                    
+    def on_llm_error(self, error, **kwargs):
+        """Log when an LLM encounters an error"""
+        self.logger.error(f"[LLM ERROR] {str(error)}")
+    
+    # Chain events
+    def on_chain_start(self, serialized, inputs, **kwargs):
+        """Log when a chain starts processing"""
+        self.step_counts["chain"] += 1
+        event_id = f"chain_{self.step_counts['chain']}"
+        self.start_times[event_id] = time.time()
+        
+        chain_name = kwargs.get('name', serialized.get('id', ['unnamed'])[-1])
+        self.logger.debug(f"[CHAIN START] {chain_name}")
+        
+        if self.logger.isEnabledFor(logging.DEBUG):
+            formatted_inputs = self._format_dict(inputs)
+            self.logger.debug(f"[CHAIN INPUTS] {pprint.pformat(formatted_inputs, compact=True)}")  # No truncation
+            
+    def on_chain_end(self, outputs, **kwargs):
+        """Log when a chain completes"""
+        chain_name = kwargs.get('name', 'unnamed')
+        event_id = f"chain_{self.step_counts['chain']}"
+        elapsed = self._get_elapsed_time(event_id)
+        
+        self.logger.debug(f"[CHAIN END] {chain_name} {elapsed}")
+        
+        if self.logger.isEnabledFor(logging.DEBUG):
+            formatted_outputs = self._format_dict(outputs)
+            self.logger.debug(f"[CHAIN OUTPUTS] {pprint.pformat(formatted_outputs, compact=True)}")  # No truncation
+            
+    def on_chain_error(self, error, **kwargs):
+        """Log when a chain encounters an error"""
+        chain_name = kwargs.get('name', 'unnamed')
+        self.logger.error(f"[CHAIN ERROR] {chain_name}: {str(error)}")
+        
+        # Include traceback for debugging
+        import traceback
+        self.logger.error(f"[CHAIN ERROR TRACE] {traceback.format_exc()}")
+    
+    # Tool events
+    def on_tool_start(self, serialized, input_str, **kwargs):
+        """Log when a tool starts execution"""
+        self.step_counts["tool"] += 1
+        event_id = f"tool_{self.step_counts['tool']}"
+        self.start_times[event_id] = time.time()
+        
+        tool_name = kwargs.get('name', serialized.get('name', 'unnamed_tool'))
+        self.logger.debug(f"[TOOL START] {tool_name}: {input_str}") 
+        
+    def on_tool_end(self, output, **kwargs):
+        """Log when a tool completes execution"""
+        tool_name = kwargs.get('name', 'unnamed_tool')
+        event_id = f"tool_{self.step_counts['tool']}"
+        elapsed = self._get_elapsed_time(event_id)
+        
+        if isinstance(output, str):
+            output_str = output
+        else:
+            output_str = str(output)
+            
+        self.logger.debug(f"[TOOL END] {tool_name} {elapsed}: {output_str}") 
+        
+    def on_tool_error(self, error, **kwargs):
+        """Log when a tool encounters an error"""
+        tool_name = kwargs.get('name', 'unnamed_tool')
+        self.logger.error(f"[TOOL ERROR] {tool_name}: {str(error)}")
+    
+    # Agent events
+    def on_agent_action(self, action, **kwargs):
+        """Log when an agent decides on an action"""
+        self.logger.debug(f"[AGENT ACTION] Tool: {action.tool}, Input: {action.tool_input}")  
+        
+    def on_agent_finish(self, finish, **kwargs):
+        """Log when an agent completes its execution"""
+        self.logger.debug(f"[AGENT FINISH] {finish.return_values}")
 
 MISTRAL_SYSPROMPT = "You are a Discord bot whose task is to translate english to bash commands. Execute bash commands using the given tools. ALWAYS report command results back to the user via Discord message tool. Before taking any section, generate a plan and follow it until the end."
 
@@ -43,8 +189,6 @@ class PlanningFormatter(BaseModel):
 class ExecutionFormatter(BaseModel):
     command: str = Field(description="The bash command to execute next")
 
-# parser = PydanticOutputParser(pydantic_object=ReplanningFormatter)
-
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
     # in the annotation defines how this state key should be updated
@@ -54,20 +198,91 @@ class State(TypedDict):
 
 class Brain:
     def __init__(self):
-        # self.logger = logging.getLogger("brain")
-
         self.channel = None
         self.discord_loop = None
         
         self.incoming_msg_buffer = queue.Queue()        # thread safe
         self.shell_out_buffer = queue.Queue()           # thread safe
 
+        self.logger = self._setup_logger()
+        self.logging_handler = LoggingCallbackHandler(self.logger)
+        
         self.shell = InteractiveShell()
         self.shell.set_output_callback(self._drain_shell)
-        self.shell.start()
+        self.shell.start()   
+    
+    def _setup_logger(self):
+        """Set up a unified logging system with timestamped log files"""
+        log_dir = '/app/logs'
+        os.makedirs(log_dir, exist_ok=True)
+
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        unified_log_path = f"{log_dir}/bot_debug_{timestamp}.log"
+        
+        # Create a RotatingFileHandler for better log management
+        from logging.handlers import RotatingFileHandler
+        file_handler = RotatingFileHandler(
+            unified_log_path,
+            maxBytes=10*1024*1024,  # 10 MB
+            backupCount=5
+        )
+        file_handler.setLevel(logging.DEBUG)
+        
+        # Create a console handler for terminal output
+        console = logging.StreamHandler()
+        console.setLevel(logging.INFO)
+        
+        # Use a consistent format
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        console.setFormatter(formatter)
+        
+        # Configure brain logger (our main logger)
+        logger = logging.getLogger("brain")
+        logger.setLevel(logging.DEBUG)
+        # Clear any existing handlers
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+        logger.handlers = []
+        # Add our handlers
+        logger.addHandler(file_handler)
+        logger.addHandler(console)
+        # Disable propagation to root logger to prevent duplicates
+        logger.propagate = False
+        
+        # Configure the root logger - use same timestamped file
+        root_handler = logging.FileHandler(unified_log_path)
+        root_handler.setFormatter(formatter)
+        root_handler.setLevel(logging.WARNING)  # Only warnings and above from root
+        
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.WARNING)
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+        root_logger.addHandler(root_handler)
+        
+        # Configure LangChain and LangGraph loggers to use the same timestamped file
+        for module_name in ["langchain", "langgraph"]:
+            module_logger = logging.getLogger(module_name)
+            module_logger.setLevel(logging.INFO)
+            # Remove existing handlers
+            for handler in module_logger.handlers[:]:
+                module_logger.removeHandler(handler)
+            # Create a dedicated handler for each module
+            module_handler = logging.FileHandler(unified_log_path)
+            module_handler.setFormatter(formatter)
+            module_handler.setLevel(logging.INFO)
+            module_logger.addHandler(module_handler)
+            # Disable propagation
+            module_logger.propagate = False
+        
+        # Test the logger
+        logger.info(f"Logging started at {timestamp} - Log file: {unified_log_path}")
+        
+        return logger
     
     def start(self):
-        # Lang graph setup
         self.graph_builder = StateGraph(State)
         self.rate_limiter = InMemoryRateLimiter(
             requests_per_second=0.1,  # <-- Super slow! We can only make a request once every 10 seconds!!
@@ -91,25 +306,17 @@ class Brain:
 
         # 👻
         def planning(state: State) -> State:
-            # planner = dspy.Predict(Planning)
-
-            response = self.planning_llm.invoke(state["messages"][-1].content + planning_signature)
+            self.logger.info("Starting planning phase")
+            response = self.planning_llm.invoke(state["messages"][-1].content + planning_prompt)
+            self.logger.debug(f"Planning response: {response.plan}")
             
             return {
-                "messages": state["messages"] + [planning_signature, AIMessage(content=response.plan)],
+                "messages": state["messages"] + [planning_prompt, AIMessage(content=response.plan)],
                 "done": False
             }
             
-        def execution(state: State):
-            execution_prompt = HumanMessage(content="""
-                You are given a plan to enact a user's intent on a terminal
-                shell. You are also given all of the commands that have been ran
-                and their outputs so far. Your job is to come up with a bash command to run to
-                achieve the next objective that hasn't been completed. Please
-                generate only a bash command with no other text.
-            """)
-            
-            messages = state["messages"] + [execution_prompt] 
+        def execution(state: State):    
+            messages = state["messages"] + [HumanMessage(content=execution_prompt)] 
             response = self.execution_llm.invoke(messages)
             self.shell.execute_command(response.command)
 
@@ -151,6 +358,23 @@ class Brain:
             # TODO: extract new plan and done from response
             # TODO: Put it back; in chat history 
             
+            # Create progress update for Discord
+            progress_message = []
+            progress_message.append("📊 **Current Progress**")
+            
+            plan_lines = response.new_plan.split('\n')
+            total_steps = len([l for l in plan_lines if l.strip() and l[0].isdigit()])
+            completed = len([l for l in plan_lines if "[FINISHED]" in l])
+            
+            progress_bar = "▓" * completed + "░" * (total_steps - completed)
+            percentage = int((completed / total_steps) * 100) if total_steps > 0 else 0
+            
+            progress_message.append(f"{progress_bar} {percentage}% complete")
+            progress_message.append(f"✅ {completed}/{total_steps} steps completed")
+            
+            # Send progress update to Discord
+            # self.send_discord_msg("\n".join(progress_message))
+            
             return {
                 "messages": state["messages"] + ["PLAN: " + replanning_prompt, AIMessage(content=response.new_plan)],
                 "done": response.done
@@ -177,46 +401,50 @@ class Brain:
     def _drain_shell(self, line: str):
         self.shell_out_buffer.put(line)
         
-        print(f"Brain received line from shell: `{line}`")
+        self.logger.info(f"Brain received line from shell: `{line}`")
 
     def __del__(self):
         self.mthread.join()
         self.shell.stop()
 
+    # Message submission
     def submit_msg(self, msg: str):
-        # this should only be called externally
-        print(f"Message being submitted to brain: `{msg}`")
+        # Replace print with logger
+        self.logger.info(f"Message being submitted to brain: `{msg}`")
         self.incoming_msg_buffer.put(msg)
 
     def _brain_main(self):
         while True:
             time.sleep(1)
 
-            # check if there is a message in the incoming_msg_buffer
             if not self.incoming_msg_buffer.empty():
                 sys_prompt = SystemMessage(MISTRAL_SYSPROMPT)
                 msg = self.incoming_msg_buffer.get()
 
-                # Prompting, interacting with shell, and responding to discord happens
-                # in lang graph
-                output = self.graph.invoke({"messages": [sys_prompt, msg]}, {"recursion_limit": 100}, debug=True)
-
-                print(f"Output from graph:")
-                pprint.pprint(output)
-
-                # completion = self.agent.run(msg)
-
-                # print(f"Brain sending command to shell: `{completion}`")
+                # Just use the logging handler - it will route to bot_debug.log
+                config = {
+                    "recursion_limit": 100,
+                    "callbacks": [self.logging_handler]
+                }
                 
-                # self.shell.execute_command(completion)     # this shouldn't bloc
+                try:
+                    output = self.graph.invoke(
+                        {"messages": [sys_prompt, msg]},
+                        config
+                    )
+                    self.logger.info("Graph execution completed")
+                except Exception as e:
+                    self.logger.error(f"Error during graph execution: {str(e)}")
+                    self.send_discord_msg(f"An error occurred: {str(e)}")
 
             # check if there is a new message in the shell_out_buffer
 
+    # Discord message sending
     def send_discord_msg(self, msg: str):
         assert self.discord_loop is not None and self.discord_loop.is_running(), \
                 "Trying to send msg before discord loop is initialized"
-
-        print(f"Brain sending message to discord: `{msg}`")
+        
+        self.logger.info(f"Brain sending message to discord: `{msg}`")
         asyncio.run_coroutine_threadsafe(self._send_discord_msg(msg), self.discord_loop)
 
     async def _send_discord_msg(self, msg: str):
@@ -224,3 +452,35 @@ class Brain:
         print("Event loop:", self.discord_loop)
         print(f"Brain sending message to discord: `{msg}`")
         await self.channel.send(msg)
+
+    def get_debug_info(self):
+        """Returns a formatted string with current brain state for debugging"""
+        info = []
+        
+        # Add current execution plan
+        if hasattr(self, 'graph') and self.graph:
+            last_state = getattr(self.graph, '_last_state', {})
+            
+            # Format the current plan
+            info.append("=== CURRENT PLAN ===")
+            for msg in last_state.get('messages', []):
+                if isinstance(msg, AIMessage) and len(msg.content) > 0:
+                    if "1." in msg.content and "2." in msg.content:  # Likely a plan
+                        info.append(f"\n{msg.content}\n")
+            
+            # Last executed command
+            info.append("=== LAST COMMAND ===")
+            for msg in reversed(last_state.get('messages', [])):
+                if isinstance(msg, AIMessage) and not ("1." in msg.content and "2." in msg.content):
+                    info.append(f"{msg.content}")
+                    break
+            
+            # Last shell output
+            info.append("\n=== LAST OUTPUT ===")
+            for msg in reversed(last_state.get('messages', [])):
+                if isinstance(msg, HumanMessage) and msg.content.startswith("Shell output:"):
+                    output = msg.content.replace("Shell output: \n", "").strip()
+                    info.append(f"{output}")
+                    break
+        
+        return "\n".join(info)

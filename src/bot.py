@@ -108,7 +108,20 @@ async def ping(ctx, *, arg=None):
     else:
         await ctx.send(f"Pong! Your argument was {arg}")
 
-
+@bot.command(name="debug", help="Shows the current brain state")
+async def debug_state(ctx):
+    if ctx.author.id not in ALLOWED_USER_IDS:
+        await ctx.send("You don't have permission to use this command.")
+        return
+        
+    # Create a readable summary of the current state
+    state_summary = brain.get_debug_info()
+    
+    # Split into chunks if needed (Discord has 2000 character limit)
+    chunks = [state_summary[i:i+1900] for i in range(0, len(state_summary), 1900)]
+    
+    for chunk in chunks:
+        await ctx.send(f"```\n{chunk}\n```")
 
 # Start the bot, connecting it to the gateway
 bot.run(token)
