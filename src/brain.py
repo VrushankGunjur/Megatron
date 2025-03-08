@@ -177,7 +177,7 @@ class LoggingCallbackHandler(BaseCallbackHandler):
         """Log when an agent completes its execution"""
         self.logger.debug(f"[AGENT FINISH] {finish.return_values}")
 
-MISTRAL_SYSPROMPT = "You are a Discord bot whose task is to translate english to bash commands. Execute bash commands using the given tools. ALWAYS report command results back to the user via Discord message tool. Before taking any section, generate a plan and follow it until the end."
+MISTRAL_SYSPROMPT = "You are an agent with access to a Docker container. Your task is to execute a series of bash commands to achieve a given objective. Respond with the appropriate bash command to execute next, based on the current state and the provided plan. Do not include any additional text or formatting in your response. The packages that are currently installed are sudo, nano, vim, and the dependencies listed in requirements.txt."
 
 class ReplanningFormatter(BaseModel):
     new_plan: str = Field(description="The new plan to begin executing.")

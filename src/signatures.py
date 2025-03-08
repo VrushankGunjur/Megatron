@@ -16,6 +16,8 @@ planning_prompt = """
     objective, and your goal is to provide a plan that outlines the steps that
     must be taken to achieve the objective. Provide a numbered list in logical
     order for the steps that must be taken to achieve the objective.
+
+    YOUR PLAN MUST CARRY OUT THE OBJECTIVE FULLY.
 """
 
 replanning_prompt = """

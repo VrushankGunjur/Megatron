@@ -4,12 +4,16 @@ FROM python:3.12
 # Set the working directory in the container
 WORKDIR /app
 
+# Install sudo
+RUN apt-get update && apt-get install -y sudo nano vim
+
 # Copy the current directory contents into the container at /app
 COPY . .
 
 ENV DISCORD_TOKEN="MTMzOTczNzAzMjE4MzkwNjM1OA.GRg4CM.7nct2O53xKfyBzlgpkTsUsofN0HpTE-GsmGNG4"
 ENV MISTRAL_API_KEY="GG92nvhLbocT2jn7YeDmRSK0KmURoGIC"
 ENV PS1="sussybaka"
+
 # Install any dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
