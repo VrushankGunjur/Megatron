@@ -217,7 +217,7 @@ class FileBrowserView(View):
         
         # Get parent directory
         parent_dir = os.path.dirname(self.current_dir)
-        if parent_dir and parent_dir != self.current_dir:
+        if (parent_dir and parent_dir != self.current_dir):
             self.current_dir = parent_dir
         else:
             self.current_dir = "/"  # Don't go above root
@@ -520,8 +520,13 @@ class CommandModal(ui.Modal, title="Execute Command"):
         finally:
             self.shell.set_output_callback(original_callback)
 
-# Command to register with the bot
+# Modify the setup function to support concurrent sessions
+
 def setup(bot):
+    # Track GUI thread cleanup status to avoid duplicate handlers
+    bot._gui_cleanup_registered = False
+    bot.handle_gui_messages = handle_gui_messages
+    
     @bot.command(name="gui", help="Open a container control panel")
     async def gui_command(ctx):
         if ctx.author.id not in bot.allowed_user_ids:
@@ -536,7 +541,7 @@ def setup(bot):
         
         # Create a dedicated shell instance for this GUI session
         dedicated_shell = InteractiveShell()
-        dedicated_shell.set_output_callback(lambda line: print(f"[GUI Shell] {line}"))
+        dedicated_shell.set_output_callback(lambda line: print(f"[GUI Shell {thread.id}] {line}"))
         dedicated_shell.start()
         
         # Store references to the thread and shell
@@ -547,164 +552,193 @@ def setup(bot):
         panel = ContainerControlPanel(bot.brain, ctx, thread, dedicated_shell)
         await thread.send("## 🎛️ **Container Control Panel**", view=panel)
         
-        # Set up thread archive listener to clean up the shell when thread is archived
-        @bot.event
-        async def on_thread_update(before, after):
-            # Check if this is one of our GUI threads and it just got archived
-            if after.id == thread.id and not before.archived and after.archived:
-                if ctx.author.id in gui_shells:
-                    # Clean up the shell when the thread is archived
-                    shell_to_close = gui_shells.pop(ctx.author.id)
-                    shell_to_close.stop()
-                    if ctx.author.id in gui_threads:
-                        del gui_threads[ctx.author.id]
+        # Register the cleanup handler only once
+        if not bot._gui_cleanup_registered:
+            @bot.event
+            async def on_thread_update(before, after):
+                # Check if this is one of our GUI threads and it just got archived
+                if not before.archived and after.archived:
+                    # Check all registered GUI threads
+                    for user_id, registered_thread in list(gui_threads.items()):
+                        if after.id == registered_thread.id:
+                            # Clean up this thread's resources
+                            if user_id in gui_shells:
+                                shell_to_close = gui_shells.pop(user_id)
+                                shell_to_close.stop()
+                                print(f"[GUI] Cleaned up shell for thread {after.id}")
+                            # Remove from thread tracking
+                            if user_id in gui_threads:
+                                del gui_threads[user_id]
+                                print(f"[GUI] Removed thread {after.id} from tracking")
+                            
+                            # Clean up any active sessions
+                            for session_user_id, session in list(active_sessions.items()):
+                                if session.get("thread_id") == after.id:
+                                    del active_sessions[session_user_id]
+                                    print(f"[GUI] Cleaned up session for user {session_user_id}")
+                
+                # Also check active_brains from the bot module
+                if hasattr(bot, "active_brains") and after.id in bot.active_brains and not before.archived and after.archived:
+                    # Clean up the brain when the thread is archived
+                    brain_to_close = bot.active_brains.pop(after.id)
+                    del brain_to_close  # This will trigger __del__ which cleans up resources
+            
+            # Mark that we've registered the cleanup handler
+            bot._gui_cleanup_registered = True
         
         # Notify in original channel
         await ctx.send(f"Control panel opened in thread: {thread.mention}")
+
+async def handle_gui_messages(bot, message):
+    """Process messages related to GUI functionality like terminal sessions and file uploads"""
+    
+    # Check if this is in a terminal session thread or a file upload
+    if message.author.id in active_sessions and not message.content.startswith(bot.command_prefix):
+        session = active_sessions[message.author.id]
         
-    @bot.event
-    async def on_message(message):
-        # Must process commands first
-        await bot.process_commands(message)
-        
-        # Check if this is in a terminal session thread
-        if message.author.id in active_sessions and not message.content.startswith(bot.command_prefix):
-            session = active_sessions[message.author.id]
+        # Terminal session handler
+        if session["type"] == "pure_terminal" and session["thread_id"] == message.channel.id:
+            # Special command handling
+            if message.content.lower() == "exit":
+                await message.channel.send("💤 **Terminal session ended**")
+                # Remove from active sessions but keep shell alive
+                del active_sessions[message.author.id]
+                return True  # Message was handled
+                
+            # Execute the command directly on the shell
+            shell = session["shell"]
+            command = message.content
             
-            # Terminal session handler
-            if session["type"] == "pure_terminal" and session["thread_id"] == message.channel.id:
-                # Special command handling
-                if message.content.lower() == "exit":
-                    await message.channel.send("💤 **Terminal session ended**")
-                    # Remove from active sessions but keep shell alive
-                    del active_sessions[message.author.id]
-                    return
-                    
-                # Execute the command directly on the shell
-                shell = session["shell"]
-                command = message.content
-                
-                # Add typing indicator to show processing
-                async with message.channel.typing():
-                    output_queue = queue.Queue()
-                    original_callback = shell.callback
-                    
-                    try:
-                        # Set callback to capture output directly
-                        shell.set_output_callback(lambda line: output_queue.put(line))
-                        
-                        # Execute command without any brain processing
-                        shell.execute_command(command)
-                        
-                        # Wait for command to finish
-                        await asyncio.sleep(1.5)
-                        
-                        # Collect raw output
-                        output_lines = []
-                        while not output_queue.empty():
-                            output_lines.append(output_queue.get())
-                            
-                        # Format output for terminal-like display
-                        output_text = "\n".join(output_lines)
-                        if "SHELL_READY" in output_text:
-                            output_text = output_text.replace("SHELL_READY", "")
-                        
-                        # Send output as a reply to the command
-                        if output_text.strip():
-                            # Split large outputs
-                            if len(output_text) > 1900:
-                                chunks = [output_text[i:i+1900] for i in range(0, len(output_text), 1900)]
-                                for i, chunk in enumerate(chunks):
-                                    if i == 0:
-                                        await message.reply(f"```\n{chunk}\n```")
-                                    else:
-                                        await message.channel.send(f"```\n{chunk}\n```")
-                            else:
-                                await message.reply(f"```\n{output_text}\n```")
-                        else:
-                            await message.reply("✅ Command executed with no output")
-                        
-                        # Add command to history for convenience
-                        if command not in command_history:
-                            command_history.insert(0, command)
-                            if len(command_history) > MAX_HISTORY:
-                                command_history.pop()
-                                
-                    except Exception as e:
-                        await message.reply(f"❌ **Error executing command:**\n```\n{str(e)}\n```")
-                    finally:
-                        shell.set_output_callback(original_callback)
-                return
-                
-            # File upload handler (existing code)
-            elif session["type"] == "file_upload" and message.attachments:
-                attachment = message.attachments[0]
-                
-                # Download the attachment
-                file_data = await attachment.read()
-                
-                # Get the dedicated shell for this session if available, otherwise use the bot's shell
-                shell = None
-                if message.author.id in gui_shells:
-                    shell = gui_shells[message.author.id]
-                else:
-                    shell = bot.brain.shell
-                
-                # Create a temporary file
-                temp_path = f"/tmp/{attachment.filename}"
-                
-                # Get the target directory from the session
-                target_dir = session.get("target_dir", "/app")
-                
-                with open(temp_path, "wb") as f:
-                    f.write(file_data)
-                    
-                # Now use shell to move it to the container
+            # Add typing indicator to show processing
+            async with message.channel.typing():
                 output_queue = queue.Queue()
                 original_callback = shell.callback
                 
                 try:
+                    # Set callback to capture output directly
                     shell.set_output_callback(lambda line: output_queue.put(line))
                     
-                    # Make sure target directory exists
-                    shell.execute_command(f"mkdir -p '{target_dir}'")
-                    await asyncio.sleep(0.5)
-                    
-                    # Clear queue
-                    while not output_queue.empty():
-                        output_queue.get()
-                    
-                    # Copy from temp to container
-                    target_path = os.path.join(target_dir, attachment.filename)
-                    copy_cmd = f"cp '{temp_path}' '{target_path}'"
-                    shell.execute_command(copy_cmd)
+                    # Execute command without any brain processing
+                    shell.execute_command(command)
                     
                     # Wait for command to finish
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(1.5)
                     
-                    # Clear queue
+                    # Collect raw output
+                    output_lines = []
                     while not output_queue.empty():
-                        output_queue.get()
+                        output_lines.append(output_queue.get())
                         
-                    # Get the thread if available
-                    if "thread_id" in session:
-                        thread = bot.get_channel(session["thread_id"])
-                        if thread:
-                            await thread.send(f"✅ File `{attachment.filename}` uploaded to container at `{target_path}`")
-                        else:
-                            await message.channel.send(f"✅ File `{attachment.filename}` uploaded to container at `{target_path}`")
-                    else:
-                        await message.channel.send(f"✅ File `{attachment.filename}` uploaded to container at `{target_path}`")
+                    # Format output for terminal-like display
+                    output_text = "\n".join(output_lines)
+                    if "SHELL_READY" in output_text:
+                        output_text = output_text.replace("SHELL_READY", "")
                     
+                    # Send output as a reply to the command
+                    if output_text.strip():
+                        # Split large outputs
+                        if len(output_text) > 1900:
+                            chunks = [output_text[i:i+1900] for i in range(0, len(output_text), 1900)]
+                            for i, chunk in enumerate(chunks):
+                                if i == 0:
+                                    await message.reply(f"```\n{chunk}\n```")
+                                else:
+                                    await message.channel.send(f"```\n{chunk}\n```")
+                        else:
+                            await message.reply(f"```\n{output_text}\n```")
+                    else:
+                        await message.reply("✅ Command executed with no output")
+                    
+                    # Add command to history for convenience
+                    if command not in command_history:
+                        command_history.insert(0, command)
+                        if len(command_history) > MAX_HISTORY:
+                            command_history.pop()
+                            
                 except Exception as e:
-                    await message.channel.send(f"❌ Error uploading file: {str(e)}")
+                    await message.reply(f"❌ **Error executing command:**\n```\n{str(e)}\n```")
                 finally:
                     shell.set_output_callback(original_callback)
-                    # Clean up the session
-                    del active_sessions[message.author.id]
+            return True  # Message was handled
+            
+        # File upload handler
+        elif session["type"] == "file_upload" and message.attachments:
+            # Add thread verification
+            if "thread_id" in session and session["thread_id"] != message.channel.id:
+                # Message is in the wrong thread, ignore it
+                return False
+            
+            attachment = message.attachments[0]
+            
+            # Download the attachment
+            file_data = await attachment.read()
+            
+            # Get the dedicated shell for this session if available, otherwise use the bot's shell
+            shell = None
+            if message.author.id in gui_shells:
+                shell = gui_shells[message.author.id]
+            else:
+                shell = bot.brain.shell
+            
+            # Create a temporary file
+            temp_path = f"/tmp/{attachment.filename}"
+            
+            # Get the target directory from the session
+            target_dir = session.get("target_dir", "/app")
+            
+            with open(temp_path, "wb") as f:
+                f.write(file_data)
+                
+            # Now use shell to move it to the container
+            output_queue = queue.Queue()
+            original_callback = shell.callback
+            
+            try:
+                shell.set_output_callback(lambda line: output_queue.put(line))
+                
+                # Make sure target directory exists
+                shell.execute_command(f"mkdir -p '{target_dir}'")
+                await asyncio.sleep(0.5)
+                
+                # Clear queue
+                while not output_queue.empty():
+                    output_queue.get()
+                
+                # Copy from temp to container
+                target_path = os.path.join(target_dir, attachment.filename)
+                copy_cmd = f"cp '{temp_path}' '{target_path}'"
+                shell.execute_command(copy_cmd)
+                
+                # Wait for command to finish
+                await asyncio.sleep(1)
+                
+                # Clear queue
+                while not output_queue.empty():
+                    output_queue.get()
                     
-                    # Clean up temp file
-                    try:
-                        os.remove(temp_path)
-                    except:
-                        pass
+                # Get the thread if available
+                if "thread_id" in session:
+                    thread = bot.get_channel(session["thread_id"])
+                    if thread:
+                        await thread.send(f"✅ File `{attachment.filename}` uploaded to container at `{target_path}`")
+                    else:
+                        await message.channel.send(f"✅ File `{attachment.filename}` uploaded to container at `{target_path}`")
+                else:
+                    await message.channel.send(f"✅ File `{attachment.filename}` uploaded to container at `{target_path}`")
+                
+            except Exception as e:
+                await message.channel.send(f"❌ Error uploading file: {str(e)}")
+            finally:
+                shell.set_output_callback(original_callback)
+                # Clean up the session
+                del active_sessions[message.author.id]
+                
+                # Clean up temp file
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+                    
+            return True  # Message was handled
+            
+    return False  # Message was not handled by GUI
