@@ -59,6 +59,8 @@ class Replanning(dspy.Signature):
     You're responsible for the replanning step. You'll be given the history of the execution, and your goal is to provide two things:
     1. If the overall objective has been achieved
     2. An updated plan, with each finished objective being followed by [FINISHED] 
+
+    Be specific in your explanation about which steps were added, removed, or modified, and provide reasoning for these changes based on the command outputs you've seen.
   """
 
   history: List[str] = dspy.InputField(description="The history of the execution on the plan")

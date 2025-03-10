@@ -83,19 +83,15 @@ async def on_message(message: discord.Message):
         logger.info(f"User {message.author} is not allowed to use the bot.")
         return
     
-
     # Process the message with the agent you wrote
     # Open up the agent.py file to customize the agent
     logger.info(f"Processing message from {message.author}: {message.content}")
 
-
-    brain.submit_msg(message.content)
+    # Pass both the message content and the original message object
+    brain.submit_msg(message.content, message_obj=message)
 
     # Send the response back to the channel
-    await message.reply("Executing now!")
-
-
-
+    await message.reply(f"**Executing your request:**\n> {message.content}")
 
 # Commands
 # This example command is here to show you how to add commands to the bot.

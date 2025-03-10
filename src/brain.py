@@ -83,7 +83,7 @@ class LoggingCallbackHandler(BaseCallbackHandler):
     def on_llm_end(self, response, **kwargs):
         """Log when an LLM completes processing"""
         event_id = f"llm_{self.step_counts['llm']}"
-        elapsed = self._get_elapsed_time(event_id)
+        elapsed = self.__get_elapsed_time(event_id)
         
         # Extract token usage when available
         token_info = ""
@@ -181,7 +181,8 @@ MISTRAL_SYSPROMPT = "You are an agent with access to a Docker container. Your ta
 
 class ReplanningFormatter(BaseModel):
     new_plan: str = Field(description="The new plan to begin executing.")
-    done: bool = Field(description="Should continue executing commands.")
+    done: bool = Field(description="Whether you should continue executing commands.")
+    explanation: str = Field(description="An explanation of how the plan was changed and why these changes were made. Elaborate what commands were run and their results.")
 
 class PlanningFormatter(BaseModel):
     plan: str = Field(description="The step-by-step plan outlining how to achieve the objective")
@@ -200,6 +201,8 @@ class Brain:
     def __init__(self):
         self.channel = None
         self.discord_loop = None
+        self.active_thread = None  # Store reference to active thread
+        self.original_message = None  # Store the original message object
         
         self.incoming_msg_buffer = queue.Queue()        # thread safe
         self.shell_out_buffer = queue.Queue()           # thread safe
@@ -309,6 +312,10 @@ class Brain:
             self.logger.info("Starting planning phase")
             response = self.planning_llm.invoke(state["messages"][-1].content + planning_prompt)
             self.logger.debug(f"Planning response: {response.plan}")
+
+            plan_message = "📋 **Initial Plan:**\n```\n" + response.plan + "\n```"
+            # Create thread for the first message
+            self.send_discord_msg(plan_message, create_thread=True)
             
             return {
                 "messages": state["messages"] + [planning_prompt, AIMessage(content=response.plan)],
@@ -318,6 +325,14 @@ class Brain:
         def execution(state: State):    
             messages = state["messages"] + [HumanMessage(content=execution_prompt)] 
             response = self.execution_llm.invoke(messages)
+            
+            # Log the command being executed
+            self.logger.info(f"[COMMAND EXECUTED] {response.command}")
+            
+            # Send command execution message to Discord
+            command_message = f"⚙️ **Executing Command:**\n```bash\n{response.command}\n```"
+            self.send_discord_msg(command_message)
+            
             self.shell.execute_command(response.command)
 
             cur_shell_outputs = []
@@ -330,7 +345,7 @@ class Brain:
             tool_output = HumanMessage(content=tool_content_string)
 
             if "[ERROR]" in tool_content_string:
-                self.send_discord_msg("Error: " + tool_content_string)
+                self.send_discord_msg("❌ **Error:**\n" + tool_content_string)
                 return {
                     "messages": state["messages"],
                     "done": True
@@ -343,40 +358,24 @@ class Brain:
 
         def replanning(state: State):
             # wrap in SystemPrompt
-            messages = state["messages"] + ["PLAN: " + replanning_prompt]
+            messages = state["messages"] + [HumanMessage(content="PLAN: " + replanning_prompt)]
             response = self.replanning_llm.invoke(messages)
 
+            changes_message = (
+                "---\n\n"
+                "## 🔄 **Progress Report**\n\n"
+                "### 📝 **Analysis & Reasoning:**\n"
+                f"{response.explanation}\n\n"
+                "### 📋 **Updated Execution Plan:**\n"
+                f"```\n{response.new_plan}\n```\n\n"
+            )
+
+            # Send to the thread - no need to create a new one
+            self.send_discord_msg(changes_message)
             if response.done:
-                for msg in reversed(state["messages"]):
-                    if isinstance(msg, HumanMessage) and msg.content.startswith("Shell output:"):
-                        content = msg.content
-                        content = content.replace("Shell output: \n", "")
-                        content = content.replace("SHELL_READY", "")
-                        self.send_discord_msg(content)
-                        break
-                self.send_discord_msg("All done!")
-            # TODO: extract new plan and done from response
-            # TODO: Put it back; in chat history 
-            
-            # Create progress update for Discord
-            progress_message = []
-            progress_message.append("📊 **Current Progress**")
-            
-            plan_lines = response.new_plan.split('\n')
-            total_steps = len([l for l in plan_lines if l.strip() and l[0].isdigit()])
-            completed = len([l for l in plan_lines if "[FINISHED]" in l])
-            
-            progress_bar = "▓" * completed + "░" * (total_steps - completed)
-            percentage = int((completed / total_steps) * 100) if total_steps > 0 else 0
-            
-            progress_message.append(f"{progress_bar} {percentage}% complete")
-            progress_message.append(f"✅ {completed}/{total_steps} steps completed")
-            
-            # Send progress update to Discord
-            # self.send_discord_msg("\n".join(progress_message))
-            
+                self.send_discord_msg("🎉 **All done!** Task completed successfully.")
             return {
-                "messages": state["messages"] + ["PLAN: " + replanning_prompt, AIMessage(content=response.new_plan)],
+                "messages": state["messages"] + [HumanMessage(content="PLAN: " + replanning_prompt), AIMessage(content=response.new_plan)],
                 "done": response.done
             }
 
@@ -407,11 +406,16 @@ class Brain:
         self.mthread.join()
         self.shell.stop()
 
-    # Message submission
-    def submit_msg(self, msg: str):
+    # Message submission - update to accept message object
+    def submit_msg(self, msg: str, message_obj=None):
         # Replace print with logger
         self.logger.info(f"Message being submitted to brain: `{msg}`")
         self.incoming_msg_buffer.put(msg)
+        # Store the original message for thread creation
+        if message_obj is not None:
+            self.original_message = message_obj
+            # Reset active_thread since this is a new conversation
+            self.active_thread = None
 
     def _brain_main(self):
         while True:
@@ -439,19 +443,33 @@ class Brain:
 
             # check if there is a new message in the shell_out_buffer
 
-    # Discord message sending
-    def send_discord_msg(self, msg: str):
+    # Discord message sending with thread support
+    def send_discord_msg(self, msg: str, create_thread=False):
         assert self.discord_loop is not None and self.discord_loop.is_running(), \
                 "Trying to send msg before discord loop is initialized"
         
         self.logger.info(f"Brain sending message to discord: `{msg}`")
-        asyncio.run_coroutine_threadsafe(self._send_discord_msg(msg), self.discord_loop)
+        asyncio.run_coroutine_threadsafe(self._send_discord_msg(msg, create_thread), self.discord_loop)
 
-    async def _send_discord_msg(self, msg: str):
+    async def _send_discord_msg(self, msg: str, create_thread=False):
         print("Channel:", self.channel)
         print("Event loop:", self.discord_loop)
         print(f"Brain sending message to discord: `{msg}`")
-        await self.channel.send(msg)
+        
+        if self.active_thread:
+            # If we have an active thread, send there
+            await self.active_thread.send(msg)
+        elif create_thread and self.original_message:
+            # Create a new thread from the original message
+            task_name = self.original_message.content[:50] + "..." if len(self.original_message.content) > 50 else self.original_message.content
+            self.active_thread = await self.original_message.create_thread(
+                name=f"Task: {task_name}", 
+                auto_archive_duration=60  # Minutes until thread auto-archives
+            )
+            await self.active_thread.send(msg)
+        else:
+            # Default fallback - send to the channel
+            await self.channel.send(msg)
 
     def get_debug_info(self):
         """Returns a formatted string with current brain state for debugging"""
