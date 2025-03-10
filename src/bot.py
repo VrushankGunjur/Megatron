@@ -12,6 +12,7 @@ import random
 
 from shell import InteractiveShell
 from brain import Brain
+import discord_gui
 
 PREFIX = "!"
 
@@ -32,6 +33,8 @@ load_dotenv()
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
+discord_gui.setup(bot)
+
 # Import the Mistral agent from the agent.py file
 # agent = MistralAgent()
 
@@ -42,6 +45,8 @@ token = os.getenv("DISCORD_TOKEN")
 
 brain = Brain()
 
+bot.brain = brain
+bot.allowed_user_ids = ALLOWED_USER_IDS
 
 @bot.event
 async def on_ready():
