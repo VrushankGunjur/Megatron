@@ -16,6 +16,7 @@ gui_threads = {}  # Map user IDs to their active GUI threads
 gui_shells = {}    # Map user IDs to their dedicated shell instances
 MAX_HISTORY = 20  # Maximum commands to remember
 
+# Enhance the ContainerControlPanel with better visual organization
 class ContainerControlPanel(View):
     """Main control panel with buttons for different container operations"""
     
@@ -23,16 +24,56 @@ class ContainerControlPanel(View):
         super().__init__(timeout=None)  # No timeout - controls stay active until thread is archived
         self.brain = brain
         self.ctx = ctx
-        self.thread = thread  # Store reference to the thread
+        self.thread = thread
         self.user_id = ctx.author.id
-        self.shell = shell    # Use the dedicated shell instance
+        self.shell = shell
         
-    @discord.ui.button(label="Run Command", style=discord.ButtonStyle.primary, emoji="⚙️", custom_id="run_command")
+    async def _send_welcome_message(self):
+        """Send a welcome message with container info for better context"""
+        welcome_msg = (
+            "## 🐳 **Container Control Panel**\n\n"
+            "Welcome to your container management interface. Use the buttons below to interact with your container.\n"
+            "- Run commands directly in the shell\n"
+            "- Browse and manage files\n"
+            "- Monitor container status\n"
+            "- Start an interactive terminal\n\n"
+            "*This panel will remain active until the thread is archived.*"
+        )
+        await self.thread.send(welcome_msg)
+        
+    # ===== COMMAND EXECUTION =====
+    @discord.ui.button(label="Run Command", style=discord.ButtonStyle.primary, emoji="🔧", row=0)
     async def run_command_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = CommandModal(self.brain, self.thread, self.shell)
         await interaction.response.send_modal(modal)
         
-    @discord.ui.button(label="File Manager", style=discord.ButtonStyle.success, emoji="📁", custom_id="file_manager")
+    @discord.ui.button(label="Terminal Session", style=discord.ButtonStyle.primary, emoji="💻", row=0)
+    async def terminal_session_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        
+        # Use the existing thread
+        terminal_thread = self.thread
+        
+        # Register this thread for terminal handling with direct shell access
+        active_sessions[self.user_id] = {
+            "type": "pure_terminal",
+            "thread_id": terminal_thread.id,
+            "shell": self.shell
+        }
+        
+        # Send welcome message in current thread
+        await terminal_thread.send(
+            "## 💻 **Interactive Terminal**\n"
+            "> Type commands directly in this thread for raw shell access.\n"
+            "> Commands execute directly in the container.\n"
+            "> Type `exit` to end the terminal session.\n\n"
+            "**Current directory:** `/app`"
+        )
+        
+        await interaction.followup.send("Terminal session started. Type commands directly in this thread.", ephemeral=True)
+    
+    # ===== FILE OPERATIONS =====    
+    @discord.ui.button(label="File Manager", style=discord.ButtonStyle.success, emoji="📁", row=1)
     async def file_manager_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         # Get file listing first
@@ -63,56 +104,49 @@ class ContainerControlPanel(View):
                     files.append({"name": file_name, "type": file_type})
                     
             # Create file browser view
-            file_view = FileBrowserView(self.brain, files[:25], self.thread, self.shell)  # Pass shell to view
-            await self.thread.send("📁 **Container File Browser:**", view=file_view)
-            await interaction.followup.send("File browser opened in thread.", ephemeral=True)
+            file_view = FileBrowserView(self.brain, files[:25], self.thread, self.shell)
+            await self.thread.send("## 📁 **Container File Browser**\nBrowse, download, and manage files in your container:", view=file_view)
+            await interaction.followup.send("File browser opened. Use it to navigate, download and upload files.", ephemeral=True)
             
         finally:
             self.shell.set_output_callback(original_callback)
-        
-    @discord.ui.button(label="Container Status", style=discord.ButtonStyle.secondary, emoji="🖥️", custom_id="container_status")
+    
+    # ===== CONTAINER INFO =====
+    @discord.ui.button(label="Container Status", style=discord.ButtonStyle.secondary, emoji="📊", row=1)
     async def container_status_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         
         # Execute status commands
         status_view = StatusView(self.brain, self.thread, self.shell)
-        await self.thread.send("🖥️ **Container Status**", view=status_view)
-        await interaction.followup.send("Status panel opened in thread.", ephemeral=True)
+        await status_view._send_header()
+        await self.thread.send("## 📊 **Container Status**\nMonitor resources and system information:", view=status_view)
         
-    @discord.ui.button(label="Command History", style=discord.ButtonStyle.secondary, emoji="📜", custom_id="command_history")
+    @discord.ui.button(label="Command History", style=discord.ButtonStyle.secondary, emoji="⏱️", row=2)
     async def history_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not command_history:
             await interaction.response.send_message("No command history available.", ephemeral=True)
             return
             
-        history_text = "\n".join([f"{i+1}. `{cmd}`" for i, cmd in enumerate(command_history)])
-        await self.thread.send(f"📜 **Command History:**\n{history_text}")
-        await interaction.response.send_message("Command history shown in thread.", ephemeral=True)
-
-    @discord.ui.button(label="Terminal Session", style=discord.ButtonStyle.primary, emoji="📟", custom_id="terminal_session", row=2)
-    async def terminal_session_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        
-        # Use the existing thread
-        terminal_thread = self.thread
-        
-        # Register this thread for terminal handling with direct shell access
-        active_sessions[self.user_id] = {
-            "type": "pure_terminal",  # New type to differentiate from brain-processed terminal
-            "thread_id": terminal_thread.id,
-            "shell": self.shell  # Direct access to the shell
-        }
-        
-        # Send welcome message in current thread
-        await terminal_thread.send(
-            "## 📟 **Terminal Session**\n"
-            "Type commands directly in this thread for raw shell access.\n"
-            "Commands bypass the brain agent and execute directly in the container.\n"
-            "Type `exit` to end the terminal session.\n\n"
-            "Current directory: `/app`"
+        # Create a nicely formatted history with most recent commands first
+        history_text = "\n".join([f"`{i+1}.` `{cmd}`" for i, cmd in enumerate(command_history[:10])])
+        await self.thread.send(f"## ⏱️ **Command History**\nRecent commands (newest first):\n{history_text}")
+        await interaction.response.send_message("Command history displayed.", ephemeral=True)
+    
+    # Add a help button
+    @discord.ui.button(label="Help", style=discord.ButtonStyle.secondary, emoji="❓", row=2)
+    async def help_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        help_text = (
+            "## ❓ **Control Panel Help**\n\n"
+            "### Available Commands:\n"
+            "- **Run Command**: Execute a single bash command\n"
+            "- **Terminal Session**: Start an interactive terminal right in this thread\n"
+            "- **File Manager**: Browse, download and upload files\n"
+            "- **Container Status**: View system resources and status\n"
+            "- **Command History**: See recently executed commands\n\n"
+            "*To end a terminal session, type `exit` in the thread.*"
         )
-        
-        await interaction.followup.send("Terminal session started in this thread. Just type commands to execute them.", ephemeral=True)
+        await self.thread.send(help_text)
+        await interaction.response.send_message("Help information displayed.", ephemeral=True)
 
 # Update other view classes to accept and use thread parameter
 class StatusView(View):
@@ -120,31 +154,40 @@ class StatusView(View):
         super().__init__(timeout=timeout)
         self.brain = brain
         self.thread = thread
-        self.shell = shell  # Use the dedicated shell
-        # Add commands to run
-        self.status_commands = [
-            {"name": "Process List", "cmd": "ps aux"},
-            {"name": "Disk Usage", "cmd": "df -h"},
-            {"name": "Memory Usage", "cmd": "free -h"}
-        ]
+        self.shell = shell
         
-    @discord.ui.button(label="Process List", style=discord.ButtonStyle.secondary, emoji="📊", row=0)
+    async def _send_header(self):
+        """Send a descriptive header for the status panel"""
+        header = (
+            "Select which system information to display:"
+        )
+        await self.thread.send(header)
+        
+    @discord.ui.button(label="Processes", style=discord.ButtonStyle.secondary, emoji="⚙️", row=0)
     async def processes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.run_status_command(interaction, "ps aux")
+        await self.run_status_command(interaction, "ps aux | head -15", "Running Processes")
         
     @discord.ui.button(label="Disk Usage", style=discord.ButtonStyle.secondary, emoji="💾", row=0) 
     async def disk_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.run_status_command(interaction, "df -h")
+        await self.run_status_command(interaction, "df -h", "Disk Usage")
         
-    @discord.ui.button(label="Memory Usage", style=discord.ButtonStyle.secondary, emoji="🧠", row=0)
+    @discord.ui.button(label="Memory", style=discord.ButtonStyle.secondary, emoji="🧠", row=0)
     async def memory_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.run_status_command(interaction, "free -h")
+        await self.run_status_command(interaction, "free -h", "Memory Usage")
         
     @discord.ui.button(label="Environment", style=discord.ButtonStyle.secondary, emoji="🌐", row=1)
     async def env_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.run_status_command(interaction, "env")
+        await self.run_status_command(interaction, "env | sort", "Environment Variables")
         
-    async def run_status_command(self, interaction: discord.Interaction, command):
+    @discord.ui.button(label="System Info", style=discord.ButtonStyle.secondary, emoji="ℹ️", row=1)
+    async def sysinfo_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.run_status_command(interaction, "uname -a && cat /etc/*release | grep PRETTY", "System Information")
+    
+    @discord.ui.button(label="Package List", style=discord.ButtonStyle.secondary, emoji="📦", row=1)
+    async def packages_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.run_status_command(interaction, "pip list | head -15", "Installed Python Packages")
+        
+    async def run_status_command(self, interaction: discord.Interaction, command, title):
         await interaction.response.defer(ephemeral=True)
         output_queue = queue.Queue()
         original_callback = self.shell.callback
@@ -171,16 +214,16 @@ class StatusView(View):
             if "SHELL_READY" in output_text:
                 output_text = output_text.replace("SHELL_READY", "")
             
-            # Send output to thread instead of followup
+            # Improved output formatting
             if len(output_text) > 1900:
                 chunks = [output_text[i:i+1900] for i in range(0, len(output_text), 1900)]
                 for i, chunk in enumerate(chunks):
                     if i == 0:
-                        await self.thread.send(f"📊 **{command} Output:**\n```\n{chunk}\n```")
+                        await self.thread.send(f"### 📊 **{title}**\n```\n{chunk}\n```")
                     else:
                         await self.thread.send(f"```\n{chunk}\n```")
             else:
-                await self.thread.send(f"📊 **{command} Output:**\n```\n{output_text}\n```")
+                await self.thread.send(f"### 📊 **{title}**\n```\n{output_text}\n```")
                 
         finally:
             self.shell.set_output_callback(original_callback)
@@ -550,6 +593,7 @@ def setup(bot):
         
         # Create and send the control panel in the thread with the dedicated shell
         panel = ContainerControlPanel(bot.brain, ctx, thread, dedicated_shell)
+        await panel._send_welcome_message() 
         await thread.send("## 🎛️ **Container Control Panel**", view=panel)
         
         # Register the cleanup handler only once
