@@ -177,7 +177,12 @@ class LoggingCallbackHandler(BaseCallbackHandler):
         """Log when an agent completes its execution"""
         self.logger.debug(f"[AGENT FINISH] {finish.return_values}")
 
-MISTRAL_SYSPROMPT = "You are an agent with access to a Docker container. Your task is to execute a series of bash commands to achieve a given objective. Respond with the appropriate bash command to execute next, based on the current state and the provided plan. Do not include any additional text or formatting in your response. The packages that are currently installed are sudo, nano, vim, and the dependencies listed in requirements.txt."
+# MISTRAL_SYSPROMPT = "You are an agent with access to a Docker container. Your task is to execute a series of bash commands necessary to achieve a given objective. Respond with the appropriate bash command to execute next, based on the current state and the provided plan. Do not include any additional text or formatting in your response. The packages that are currently installed are sudo, nano, vim, and the dependencies listed in requirements.txt."
+
+
+MISTRAL_SYSPROMPT = "You are an agent with access to a Docker container. Your task is to execute a series of bash commands necessary to achieve a given objective. Respond with the appropriate bash command to execute next, based on the current state and the provided plan. Do not include any additional text or formatting in your response. The packages that are currently installed are standard Linux packages and the Python dependencies listed in requirements.txt. When writing files, do not use editors like nano or vim, use standard bash commands such as output redirection."
+
+summarize_prompt = "Summarize the final results and how it achieves the original objective. For instance, if you were asked to list the files in the current directory, you should summarize the results by listing the files. Format numerical results or lists in an easy to read format, using markdown when suitable."
 
 class ReplanningFormatter(BaseModel):
     new_plan: str = Field(description="The new plan to begin executing.")
@@ -190,12 +195,16 @@ class PlanningFormatter(BaseModel):
 class ExecutionFormatter(BaseModel):
     command: str = Field(description="The bash command to execute next")
 
+class SummarizeFormatter(BaseModel):
+    summary: str = Field(description="A summary of the final results and how it achieves the original objective.")
+
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
     # in the annotation defines how this state key should be updated
     # (in this case, it appends messages to the list, rather than overwriting them)
     messages: Annotated[list, add_messages]
     plan: Annotated[list, add_messages]
+    done: bool
 
 class Brain:
     def __init__(self):
@@ -297,13 +306,14 @@ class Brain:
         self.planning_llm = self.llm.with_structured_output(PlanningFormatter)
         self.execution_llm = self.llm.with_structured_output(ExecutionFormatter)
         self.replanning_llm = self.llm.with_structured_output(ReplanningFormatter)
+        self.summarize_llm = self.llm.with_structured_output(SummarizeFormatter)
 
         # Passed into lang graph for routing between continuing and ending
         # AGENTIC workflow 🌳🦊
 
         def route_tools(state: State):
             if state["done"]:
-                return END
+                return "summarize"
             else: 
                 return "execution"
 
@@ -337,6 +347,7 @@ class Brain:
 
             cur_shell_outputs = []
 
+            # TODO: we need something more robust than waiting
             time.sleep(1)
             while not self.shell_out_buffer.empty():
                 cur_shell_outputs.append(self.shell_out_buffer.get())
@@ -372,22 +383,41 @@ class Brain:
 
             # Send to the thread - no need to create a new one
             self.send_discord_msg(changes_message)
-            if response.done:
-                self.send_discord_msg("🎉 **All done!** Task completed successfully.")
+
             return {
                 "messages": state["messages"] + [HumanMessage(content="PLAN: " + replanning_prompt), AIMessage(content=response.new_plan)],
                 "done": response.done
+            }
+        
+        def summarize(state: State):
+            assert state["done"], "Task graph should be done"
+            self.logger.info("Starting summarization phase")
+            response = self.summarize_llm.invoke("\n".join([state["messages"][i].content for i in range(len(state["messages"]))]) + summarize_prompt)
+            self.logger.debug(f"Summarization response: {response.summary}")
+
+            summary_message = "📋 **Task Summary:**\n```\n" + response.summary + "\n```"
+            # Create thread for the first message
+            self.send_discord_msg(summary_message)
+            
+            # if response.done:
+            self.send_discord_msg("🎉 **All done!** Task completed successfully.")
+
+            return {
+                "messages": state["messages"] + [summarize_prompt, AIMessage(content=response.summary)],
+                "done": True
             }
 
         self.graph_builder.add_node("planning", planning)
         self.graph_builder.add_node("execution", execution)
         self.graph_builder.add_node("replanning", replanning)
+        self.graph_builder.add_node("summarize", summarize)
         
         self.graph_builder.add_edge(START, "planning")
 
         self.graph_builder.add_edge("planning", "execution")
         self.graph_builder.add_edge("execution", "replanning")
-        self.graph_builder.add_conditional_edges("replanning", route_tools, {END: END, "execution": "execution"})
+        self.graph_builder.add_conditional_edges("replanning", route_tools, {"summarize": "summarize", "execution": "execution"})
+        self.graph_builder.add_edge("summarize", END)
 
         self.graph = self.graph_builder.compile()
 

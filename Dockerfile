@@ -5,7 +5,8 @@ FROM python:3.12
 WORKDIR /app
 
 # Install sudo
-RUN apt-get update && apt-get install -y sudo nano vim
+# RUN apt-get update && apt-get install -y sudo nano vim
+RUN apt-get update && apt-get install -y sudo
 
 # Copy the current directory contents into the container at /app
 COPY . .

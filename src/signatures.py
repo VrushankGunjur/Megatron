@@ -33,6 +33,8 @@ replanning_prompt = """
     You're responsible for the replanning step. You'll be given the history of the execution, and your goal is to provide two things:
     1. If the overall objective has been achieved
     2. An updated plan, with each finished objective being followed by [FINISHED]
+
+    YOUR PLAN MUST CARRY OUT THE OBJECTIVE FULLY, AND THE EXPLICIT OBJECTIVE ONLY.
 """
 
 execution_prompt = """
