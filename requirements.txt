@@ -6,11 +6,11 @@ langchain-core
 langchain
 langgraph
 dspy
-pydantic
-numpy
-pandas
-scipy
-scikit-learn
-matplotlib
-seaborn
-torch
+# pydantic
+# numpy
+# pandas
+# scipy
+# scikit-learn
+# matplotlib
+# seaborn
+# torch

@@ -42,7 +42,7 @@ class InteractiveShell:
         # Start the monitoring thread
         self.output_monitor_thread = threading.Thread(
             target=self._output_monitor,
-            daemon=True  # Thread will exit when main program exits
+            daemon=False
         )
         self.output_monitor_thread.start()
         

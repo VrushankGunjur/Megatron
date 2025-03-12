@@ -24,7 +24,7 @@ class CommandModal(ui.Modal, title="Execute Command"):
         await interaction.response.send_message("Command submitted, see results in thread.", ephemeral=True)
         await self.thread.send(f"⚙️ **Executing command:**\n```bash\n{command}\n```")
         
-        # # Add to command history
+        # Add to command history
         # if command not in command_history:
         #     command_history.insert(0, command)  # Add to the beginning
         #     if len(command_history) > MAX_HISTORY:

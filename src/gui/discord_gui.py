@@ -101,10 +101,10 @@ def setup(bot):
 async def handle_gui_messages(bot, message):
     """Process messages related to GUI functionality like terminal sessions and file uploads"""
 
-    if message.content.startswith(bot.command_prefix + "agent"):
-        print("(waitz) Should not run !agent in a thread")
-        await message.reply(f"Should not run !agent in a thread.")
-        return True
+    # if message.content.startswith(bot.command_prefix + "agent"):
+    #     print("(waitz) Should not run !agent in a thread")
+    #     await message.reply(f"Should not run !agent in a thread.")
+    #     return True
 
     # Check if this is in a terminal session thread or a file upload
     if message.author.id in active_sessions: #and not message.content.startswith(bot.command_prefix):

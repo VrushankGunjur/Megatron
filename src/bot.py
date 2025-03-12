@@ -140,7 +140,7 @@ async def agent_command(ctx, *, task=None):
             auto_archive_duration=60  # Minutes until auto-archive
         )
     else:
-        await ctx.send("!agent can only be run as a new process in the channel. Please exit the thread and go back to the channel")
+        await ctx.send("🛑! agent can only be run as a new process in the channel. Please exit the thread and go back to the channel")
         return
     
     # Create a new Brain instance specifically for this task
