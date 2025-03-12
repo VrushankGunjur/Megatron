@@ -2,6 +2,7 @@ discord
 openai>=1.3.0
 python-dotenv==1.0.1
 langchain-mistralai
+langchain-openai
 langchain-core
 langchain
 langgraph
