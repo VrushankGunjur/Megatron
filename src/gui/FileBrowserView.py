@@ -4,7 +4,7 @@ import asyncio
 import queue
 import os
 
-from FileSelect import FileSelect
+from .FileSelect import FileSelect
 
 class FileBrowserView(View):
     """View for browsing and managing files in the container"""
@@ -126,7 +126,7 @@ class FileBrowserView(View):
                     })
                     
             # Create new file browser view
-            new_view = FileBrowserView(self.brain, files[:25], self.thread, self.shell)
+            new_view = FileBrowserView(self.brain, files[:25], self.thread, self.shell, self.active_sessions)
             new_view.current_dir = self.current_dir
             
             # Send updated view

@@ -24,7 +24,7 @@ print(os.getenv("SSL_CERT_FILE"))
 # Setup logging
 logger = logging.getLogger("discord")
 
-ALLOWED_USER_IDS = {269194364201336832, 203260138247684096, 249749629229465611, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
+#ALLOWED_USER_IDS = {269194364201336832, 203260138247684096, 249749629229465611, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
 
 # Load the environment variables
 load_dotenv()
@@ -47,7 +47,7 @@ token = os.getenv("DISCORD_TOKEN")
 brain = Brain()
 
 bot.brain = brain
-bot.allowed_user_ids = ALLOWED_USER_IDS
+# bot.allowed_user_ids = ALLOWED_USER_IDS
 
 active_brains = {}  # Dictionary to track active brain instances by thread ID
 
@@ -93,9 +93,9 @@ async def on_message(message: discord.Message):
     if isinstance(message.channel, discord.Thread):
         return  # Skip processing in threads - these will be handled by their dedicated brains
 
-    if message.author.id not in ALLOWED_USER_IDS:
-        logger.info(f"User {message.author} is not allowed to use the bot.")
-        return
+    # if message.author.id not in ALLOWED_USER_IDS:
+    #     logger.info(f"User {message.author} is not allowed to use the bot.")
+    #     return
     
     # For messages not handled by commands or GUI, suggest using !agent
     if "!agent" not in message.content:
@@ -114,9 +114,9 @@ async def ping(ctx, *, arg=None):
 
 @bot.command(name="debug", help="Shows the current brain state")
 async def debug_state(ctx):
-    if ctx.author.id not in ALLOWED_USER_IDS:
-        await ctx.send("You don't have permission to use this command.")
-        return
+    # if ctx.author.id not in ALLOWED_USER_IDS:
+    #     await ctx.send("You don't have permission to use this command.")
+    #     return
         
     # Create a readable summary of the current state
     state_summary = brain.get_debug_info()
@@ -130,9 +130,9 @@ async def debug_state(ctx):
 @bot.command(name="agent", help="Run an AI agent task in a new thread")
 async def agent_command(ctx, *, task=None):
     """Execute a task using the AI agent in a dedicated thread"""
-    if ctx.author.id not in ALLOWED_USER_IDS:
-        await ctx.send("⛔ You don't have permission to use this command.")
-        return
+    # if ctx.author.id not in ALLOWED_USER_IDS:
+    #     await ctx.send("⛔ You don't have permission to use this command.")
+    #     return
         
     # Make sure a task was provided
     if not task:
@@ -140,10 +140,14 @@ async def agent_command(ctx, *, task=None):
         return
         
     # Create a thread for this specific task
-    task_thread = await ctx.message.create_thread(
-        name=f"Task: {task[:50]}" + ("..." if len(task) > 50 else ""),
-        auto_archive_duration=60  # Minutes until auto-archive
-    )
+    if not (ctx.channel.type == discord.ChannelType.public_thread or ctx.channel.type == discord.ChannelType.private_thread):
+        task_thread = await ctx.message.create_thread(
+            name=f"Task: {task[:50]}" + ("..." if len(task) > 50 else ""),
+            auto_archive_duration=60  # Minutes until auto-archive
+        )
+    else:
+        await ctx.send("!agent can only be run as a new process in the channel. Please exit the thread and go back to the channel")
+        return
     
     # Create a new Brain instance specifically for this task
     task_brain = Brain()
@@ -164,14 +168,6 @@ async def agent_command(ctx, *, task=None):
     
     # Acknowledge in the original channel
     await ctx.send(f"Task started in thread: {task_thread.mention}")
-    
-    # Set up thread archive listener to clean up the brain when thread is archived
-    @bot.event
-    async def on_thread_update(before, after):
-        if after.id in active_brains and not before.archived and after.archived:
-            # Clean up the brain when the thread is archived
-            brain_to_close = active_brains.pop(after.id)
-            del brain_to_close  # This will trigger __del__ which cleans up resources
 
 # Start the bot, connecting it to the gateway
 bot.run(token)

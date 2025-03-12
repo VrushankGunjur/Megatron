@@ -3,9 +3,9 @@ from discord.ui import View
 import asyncio
 import queue
 
-from CommandModal import CommandModal
-from FileBrowserView import FileBrowserView
-from StatusView import StatusView
+from .CommandModal import CommandModal
+from .FileBrowserView import FileBrowserView
+from .StatusView import StatusView
 
 
 class ContainerControlPanel(View):

@@ -52,7 +52,7 @@ class LoggingCallbackHandler(BaseCallbackHandler):
     def on_llm_end(self, response, **kwargs):
         """Log when an LLM completes processing"""
         event_id = f"llm_{self.step_counts['llm']}"
-        elapsed = self.__get_elapsed_time(event_id)
+        elapsed = self._get_elapsed_time(event_id)
         
         # Extract token usage when available
         token_info = ""

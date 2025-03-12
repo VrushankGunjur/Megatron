@@ -19,8 +19,10 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 
 import logging
 
-from prompts import planning_prompt, replanning_prompt, execution_prompt, summarize_prompt
-from prompts import ReplanningFormatter, PlanningFormatter, ExecutionFormatter, SummarizeFormatter
+# from prompts import planning_prompt, replanning_prompt, execution_prompt, summarize_prompt
+# from prompts import ReplanningFormatter, PlanningFormatter, ExecutionFormatter, SummarizeFormatter
+
+from prompts import *
 
 import os
 
@@ -107,8 +109,8 @@ class Brain:
             module_logger = logging.getLogger(module_name)
             module_logger.setLevel(logging.INFO)
             # Remove existing handlers
-            for handler in module_logger.handlers[:]:
-                module_logger.removeHandler(handler)
+            # for handler in module_logger.handlers[:]:
+            #     module_logger.removeHandler(handler)
             # Create a dedicated handler for each module
             module_handler = logging.FileHandler(unified_log_path)
             module_handler.setFormatter(formatter)
@@ -136,16 +138,12 @@ class Brain:
         self.replanning_llm = self.llm.with_structured_output(ReplanningFormatter)
         self.summarize_llm = self.llm.with_structured_output(SummarizeFormatter)
 
-        # Passed into lang graph for routing between continuing and ending
-        # AGENTIC workflow 🌳🦊
-
         def route_tools(state: State):
             if state["done"]:
                 return "summarize"
             else: 
                 return "execution"
 
-        # 👻
         def planning(state: State) -> State:
             self.logger.info("Starting planning phase")
             response = self.planning_llm.invoke(state["messages"][-1].content + planning_prompt)
@@ -189,7 +187,7 @@ class Brain:
                 cur_shell_outputs.append(self.shell_out_buffer.get())
             
             tool_content_string = f"Shell output: \n {'\n'.join(cur_shell_outputs)}"
-            tool_output = ToolMessage(content=tool_content_string)
+            tool_output = HumanMessage(content=tool_content_string)
 
             # TODO: when will we see this error string? is this a linux thing?
             if "[ERROR]" in tool_content_string:
@@ -319,9 +317,9 @@ class Brain:
         asyncio.run_coroutine_threadsafe(self._send_discord_msg(msg, create_thread), self.discord_loop)
 
     async def _send_discord_msg(self, msg: str, create_thread=False):
-        print("Channel:", self.channel)
-        print("Event loop:", self.discord_loop)
-        print(f"Brain sending message to discord: `{msg}`")
+        self.logger.info(f"Channel: {self.channel}")
+        self.logger.info(f"Event loop: {self.discord_loop}")
+        self.logger.info(f"Brain sending message to discord: `{msg}`")
         
         if self.active_thread:
             # If we have an active thread, send there

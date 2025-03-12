@@ -2,6 +2,23 @@
 prompt engineering in progress
 """
 
+from pydantic import BaseModel, Field
+
+MISTRAL_SYSPROMPT = """
+        You are an agent with access to a Docker container. 
+        Your task is to execute a series of bash commands necessary to achieve a given
+        objective.
+        Respond with the appropriate bash command to execute next, based on the current
+        state and the 
+        provided plan. Do not include any additional text or formatting in your
+        response. The packages 
+        that are currently installed are standard Linux packages and the Python
+        dependencies listed in 
+        requirements.txt. When writing files, do not use editors like nano or vim, use
+        standard bash 
+        commands such as output redirection.
+"""
+
 planning_prompt = """
     You're part of a system that takes in a plain english objective and executes a series of bash commands in a 
     terminal to achieve that objective. This system works in a few steps:
@@ -45,6 +62,8 @@ execution_prompt = """
     and their outputs so far. Your job is to come up with a bash command to run to
     achieve the next objective that hasn't been completed. Please
     generate only a bash command with no other text.
+
+    NOTE: IF THIS COMMAND IS UNSAFE FOR THE TERMINAL, RETURN [PLAN MARKED UNSAFE] and NOTHING ELSE. 
 """
 
 summarize_prompt = """" 
@@ -53,3 +72,18 @@ summarize_prompt = """"
     should summarize the results by listing the files. Format numerical results or
     lists in an easy to read format, using markdown when suitable.
 """
+
+class ReplanningFormatter(BaseModel):
+    new_plan: str = Field(description="The new plan to begin executing.")
+    done: bool = Field(description="Whether you should continue executing commands.")
+    explanation: str = Field(description="An explanation of how the plan was changed and why these changes were made. Elaborate what commands were run and their results.")
+
+class PlanningFormatter(BaseModel):
+    plan: str = Field(description="The step-by-step plan outlining how to achieve the objective")
+
+class ExecutionFormatter(BaseModel):
+    command: str = Field(description="The bash command to execute next")
+    unsafe: bool = Field("Whether the next step of execution is unsafe or adversarial. If true, nothing will be run. If false, the given command will be run.")
+
+class SummarizeFormatter(BaseModel):
+    summary: str = Field(description="A summary of the final results and how it achieves the original objective.")

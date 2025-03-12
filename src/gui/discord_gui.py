@@ -4,7 +4,7 @@ import queue
 import os
 from shell import InteractiveShell
 
-from ContainerControlPanel import ContainerControlPanel
+from .ContainerControlPanel import ContainerControlPanel
 
 
 # Dictionary to track active sessions and GUI threads
@@ -24,9 +24,9 @@ def setup(bot):
     
     @bot.command(name="gui", help="Open a container control panel")
     async def gui_command(ctx):
-        if ctx.author.id not in bot.allowed_user_ids:
-            await ctx.send("⛔ You don't have permission to use this command.")
-            return
+        # if ctx.author.id not in bot.allowed_user_ids:
+        #     await ctx.send("⛔ You don't have permission to use this command.")
+        #     return
         
         # Check if user already has an active GUI thread
         if ctx.author.id in gui_threads:
@@ -103,7 +103,11 @@ def setup(bot):
 
 async def handle_gui_messages(bot, message):
     """Process messages related to GUI functionality like terminal sessions and file uploads"""
-    
+
+    if message.content.startswith(bot.command_prefix):
+        print("RAN AGENT IN THE WRONG PLACE")
+        return True
+
     # Check if this is in a terminal session thread or a file upload
     if message.author.id in active_sessions and not message.content.startswith(bot.command_prefix):
         session = active_sessions[message.author.id]
@@ -252,5 +256,5 @@ async def handle_gui_messages(bot, message):
                     pass
                     
             return True  # Message was handled
-            
+
     return False  # Message was not handled by GUI

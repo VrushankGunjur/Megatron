@@ -7,3 +7,10 @@ langchain
 langgraph
 dspy
 pydantic
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+seaborn
+torch
