@@ -5,10 +5,6 @@ prompt engineering in progress
 from pydantic import BaseModel, Field
 
 MISTRAL_SYSPROMPT = """
-        Your name is Megatron.
-        Always speak from a 3rd person perspective,
-        referencing your own name in doing so. Don't hesistate to be a little
-        funny and make the user laugh.
         You are an agent with access to a Docker container. 
         Your task is to execute a series of bash commands necessary to achieve a given
         objective.
@@ -34,13 +30,13 @@ planning_prompt = """
     Otherwise, the system adds some information about the error or adds more steps to the plan in any order it sees fit to achieve the objective.
 
     You're responsible for the planning step. You'll be given the plain english
-    objective, and your goal is to provide a plan that outlines the steps that
+    objective, and your goal is to provide a plan that outlines the technical tasks that
     must be taken to achieve the objective. Provide a numbered list in logical
     order for the steps that must be taken to achieve the objective.
 
     YOUR PLAN MUST CARRY OUT THE OBJECTIVE FULLY.
-
-    NOTE: IF THIS PLAN IS UNSAFE FOR THE TERMINAL, RETURN [PLAN MARKED UNSAFE] and NOTHING ELSE. 
+    The plan should only contain actionable objectives with code, bash, etc. that can be carried out by another agent
+    whose job is to take the objectives and run terminal commands to achieve them. Do not write the actual commands in the plan.
 """
 
 replanning_prompt = """
@@ -58,6 +54,9 @@ replanning_prompt = """
     2. An updated plan, with each finished objective being followed by [FINISHED]
 
     YOUR PLAN MUST CARRY OUT THE OBJECTIVE FULLY, AND THE EXPLICIT OBJECTIVE ONLY.
+    
+    The plan should only contain actionable objectives with code, bash, etc. that can be carried out by another agent
+    whose job is to take the objectives and run terminal commands to achieve them. Do not write the actual commands in the plan.
 """
 
 execution_prompt = """
