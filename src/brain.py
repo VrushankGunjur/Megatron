@@ -411,23 +411,10 @@ class Brain:
 
     async def _send_discord_msg(self, msg: str, create_thread=False):
         try:
+            # Determine the target for sending messages
+            target = None
             if self.active_thread:
-                # If we have an active thread, send there
-                # Make sure not to exceed Discord message length limits 
-                if len(msg) > 1900:
-                    chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
-                    total_chunks = len(chunks)
-                    
-                    for i, chunk in enumerate(chunks):
-                        # Add header/footer to indicate chunking
-                        if total_chunks > 1:
-                            chunk_header = f"**Message Part {i+1}/{total_chunks}** {'(continued...)' if i > 0 else ''}\n"
-                            chunk_footer = "\n" if i < total_chunks-1 else "\n**End of message**"
-                            await self.active_thread.send(f"{chunk_header}{chunk}{chunk_footer}")
-                        else:
-                            await self.active_thread.send(chunk)
-                else:
-                    await self.active_thread.send(msg)
+                target = self.active_thread
             elif create_thread and self.original_message:
                 # Create a new thread from the original message
                 task_name = self.original_message.content[:50] + "..." if len(self.original_message.content) > 50 else self.original_message.content
@@ -437,43 +424,108 @@ class Brain:
                 )
                 # Add a small delay to ensure thread is ready
                 await asyncio.sleep(0.5)
-                
-                # Split message if needed
-                if len(msg) > 1900:
-                    chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
-                    total_chunks = len(chunks)
-                    
-                    for i, chunk in enumerate(chunks):
-                        # Add header/footer to indicate chunking
-                        if total_chunks > 1:
-                            chunk_header = f"**Message Part {i+1}/{total_chunks}** {'(continued...)' if i > 0 else ''}\n"
-                            chunk_footer = "\n" if i < total_chunks-1 else "\n**End of message**" 
-                            await self.active_thread.send(f"{chunk_header}{chunk}{chunk_footer}")
-                        else:
-                            await self.active_thread.send(chunk)
-                else:
-                    await self.active_thread.send(msg)
+                target = self.active_thread
             else:
-                # Default fallback - send to the channel
-                # Split message if needed
-                if len(msg) > 1900:
-                    chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
-                    total_chunks = len(chunks)
-                    
-                    for i, chunk in enumerate(chunks):
-                        # Add header/footer to indicate chunking
-                        if total_chunks > 1:
-                            chunk_header = f"**Message Part {i+1}/{total_chunks}** {'(continued...)' if i > 0 else ''}\n"
-                            chunk_footer = "\n" if i < total_chunks-1 else "\n**End of message**"
-                            await self.channel.send(f"{chunk_header}{chunk}{chunk_footer}")
+                target = self.channel
+                
+            # Smart chunking that preserves formatting
+            if len(msg) > 1900:
+                chunks = self._smart_chunk_message(msg)
+                total_chunks = len(chunks)
+                
+                for i, chunk in enumerate(chunks):
+                    # Add header/footer to indicate chunking with improved styling
+                    if total_chunks > 1:
+                        # First chunk gets special header with message start indicator
+                        if i == 0:
+                            chunk_header = f"📄 **Message ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
+                        # Middle chunks get continuation indicator
+                        elif i < total_chunks - 1:
+                            chunk_header = f"📄 **Continued ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
+                        # Last chunk gets final part indicator
                         else:
-                            await self.channel.send(chunk)
-                else:
-                    await self.channel.send(msg)
+                            chunk_header = f"📄 **Final Part ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
+                        
+                        # Footer varies by position
+                        if i < total_chunks - 1:
+                            chunk_footer = "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ *continued in next message* ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+                        else:
+                            chunk_footer = "\n\n━━━━━━━━━━━━━━━ **End of Message** ━━━━━━━━━━━━━━━"
+                        
+                        await target.send(f"{chunk_header}{chunk}{chunk_footer}")
+                    else:
+                        await target.send(chunk)
+            else:
+                await target.send(msg)
         except Exception as e:
             self.logger.error(f"Error sending message to Discord: {str(e)}")
             # Try a simplified message as fallback
             await self.channel.send(f"Error displaying formatted message. Please check logs.")
+
+    def _smart_chunk_message(self, msg: str, chunk_size=1800):
+        """
+        Intelligently split a message into chunks that preserve formatting
+        """
+        chunks = []
+        remaining = msg
+        
+        while len(remaining) > chunk_size:
+            # Try to find good break points in descending order of preference
+            
+            # 1. Look for double newlines (paragraph breaks)
+            split_point = remaining[:chunk_size].rfind('\n\n')
+            
+            # 2. Look for single newlines if no paragraph break found
+            if split_point == -1 or split_point < chunk_size // 2:
+                split_point = remaining[:chunk_size].rfind('\n')
+            
+            # 3. Look for periods followed by space (end of sentences)
+            if split_point == -1 or split_point < chunk_size // 2:
+                # Find last period+space before limit
+                for i in range(min(chunk_size - 1, len(remaining) - 1), chunk_size // 2, -1):
+                    if remaining[i-1:i+1] == '. ' or remaining[i-1:i+1] == '! ' or remaining[i-1:i+1] == '? ':
+                        split_point = i
+                        break
+            
+            # 4. Fallback: just split at a space
+            if split_point == -1 or split_point < chunk_size // 2:
+                split_point = remaining[:chunk_size].rfind(' ')
+                
+            # 5. Last resort: hard cut
+            if split_point == -1:
+                split_point = chunk_size
+            
+            # Check for unclosed code blocks
+            chunk = remaining[:split_point]
+            code_block_count = chunk.count('```')
+            
+            # If we have unclosed code blocks, close them and reopen in next chunk
+            if code_block_count % 2 != 0:
+                # Add closing code block to current chunk
+                chunk += "\n```"
+                
+                # Next chunk will need to reopen the code block
+                # Get the language if specified
+                code_blocks = remaining[:split_point].split('```')
+                lang = ""
+                if len(code_blocks) > 1 and code_blocks[1].strip() and ' ' not in code_blocks[1].split('\n')[0]:
+                    lang = code_blocks[1].split('\n')[0]
+                
+                # Save current chunk
+                chunks.append(chunk)
+                
+                # Prepare next chunk with reopened code block
+                remaining = f"```{lang}\n{remaining[split_point:]}"
+            else:
+                # Normal case - just split at the chosen point
+                chunks.append(chunk)
+                remaining = remaining[split_point:]
+        
+        # Add remaining content as the last chunk
+        if remaining:
+            chunks.append(remaining)
+        
+        return chunks
 
     def get_debug_info(self):
         """Returns a formatted string with current brain state for debugging"""
