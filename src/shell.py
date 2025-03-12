@@ -115,9 +115,10 @@ class InteractiveShell:
                 if self.callback:
                     self.callback(error_msg)
                 return False
-            
-            if self.process.poll() is not None:
-                error_msg = "[ERROR] Shell process has terminated"
+
+            ret = self.process.poll() 
+            if ret is not None:
+                error_msg = f"[ERROR] Shell process has terminated, exited w/ err code {ret}"
                 self.output_buffer.put(error_msg)
                 if self.callback:
                     self.callback(error_msg)
