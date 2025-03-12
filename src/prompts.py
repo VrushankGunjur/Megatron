@@ -45,8 +45,6 @@ execution_prompt = """
     and their outputs so far. Your job is to come up with a bash command to run to
     achieve the next objective that hasn't been completed. Please
     generate only a bash command with no other text.
-
-    NOTE: IF THIS COMMAND IS UNSAFE FOR THE TERMINAL, RETURN [PLAN MARKED UNSAFE] and NOTHING ELSE. 
 """
 
 summarize_prompt = """" 

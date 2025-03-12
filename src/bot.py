@@ -12,7 +12,8 @@ import random
 
 from shell import InteractiveShell
 from brain import Brain
-import discord_gui
+from gui import discord_gui
+
 
 PREFIX = "!"
 
@@ -23,7 +24,7 @@ print(os.getenv("SSL_CERT_FILE"))
 # Setup logging
 logger = logging.getLogger("discord")
 
-ALLOWED_USER_IDS = {203260138247684096, 249749629229465611, 203260138247684096, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
+ALLOWED_USER_IDS = {269194364201336832, 203260138247684096, 249749629229465611, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
 
 # Load the environment variables
 load_dotenv()

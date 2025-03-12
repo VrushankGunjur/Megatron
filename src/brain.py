@@ -15,188 +15,16 @@ from langchain.schema import SystemMessage
 from langchain_core.messages import ToolMessage, AIMessage, HumanMessage
 
 from langchain_mistralai import ChatMistralAI
-from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_core.tools import tool
 from langchain_core.rate_limiters import InMemoryRateLimiter
-import pprint
 
 import logging
-import dspy
 
-from signatures import Replanning, Planning, planning_prompt, replanning_prompt, execution_prompt
-
-from pydantic import BaseModel, Field
+from prompts import planning_prompt, replanning_prompt, execution_prompt, summarize_prompt
+from prompts import ReplanningFormatter, PlanningFormatter, ExecutionFormatter, SummarizeFormatter
 
 import os
-from langchain.callbacks.tracers import ConsoleCallbackHandler
-from langsmith import Client
 
-from langchain.callbacks.base import BaseCallbackHandler
-from langchain.callbacks import FileCallbackHandler
-
-class LoggingCallbackHandler(BaseCallbackHandler):
-    """Enhanced callback handler that logs LangChain/LangGraph events to a Python logger"""
-    
-    def __init__(self, logger):
-        self.logger = logger
-        self.step_counts = {
-            "llm": 0,
-            "chain": 0,
-            "tool": 0,
-            "retriever": 0
-        }
-        self.start_times = {}
-        
-    def _format_dict(self, obj, max_length=None): 
-        """Format dictionaries"""
-        if isinstance(obj, dict):
-            formatted = {}
-            for k, v in obj.items():
-                if isinstance(v, dict):
-                    formatted[k] = self._format_dict(v)
-                else:
-                    formatted[k] = v
-            return formatted
-        return obj
-    
-    def _get_elapsed_time(self, event_id):
-        """Calculate elapsed time for an event in ms"""
-        if event_id in self.start_times:
-            elapsed = (time.time() - self.start_times[event_id]) * 1000
-            del self.start_times[event_id]
-            return f"({elapsed:.2f}ms)"
-        return ""
-        
-    # LLM events
-    def on_llm_start(self, serialized, prompts, **kwargs):
-        """Log when an LLM starts processing"""
-        self.step_counts["llm"] += 1
-        event_id = f"llm_{self.step_counts['llm']}"
-        self.start_times[event_id] = time.time()
-        
-        model = serialized.get("id", ["unknown"])[-1]
-        self.logger.debug(f"[LLM START] Model: {model}, Prompt tokens: {len(''.join(prompts))//4}")
-        
-        if prompts and self.logger.isEnabledFor(logging.DEBUG):
-            self.logger.debug(f"[LLM PROMPT] {prompts[0]}") 
-        
-    def on_llm_end(self, response, **kwargs):
-        """Log when an LLM completes processing"""
-        event_id = f"llm_{self.step_counts['llm']}"
-        elapsed = self.__get_elapsed_time(event_id)
-        
-        # Extract token usage when available
-        token_info = ""
-        if hasattr(response, 'llm_output') and response.llm_output:
-            usage = response.llm_output.get('token_usage', {})
-            if usage:
-                token_info = f"(Input: {usage.get('prompt_tokens', '?')}, " \
-                             f"Output: {usage.get('completion_tokens', '?')}, " \
-                             f"Total: {usage.get('total_tokens', '?')})"
-        
-        self.logger.debug(f"[LLM END] {elapsed} {token_info}")
-        
-        if hasattr(response, 'generations') and response.generations:
-            for i, gen in enumerate(response.generations[0]):
-                if hasattr(gen, 'text'):
-                    self.logger.debug(f"[LLM GEN {i+1}] {gen.text}")  # No truncation
-                    
-    def on_llm_error(self, error, **kwargs):
-        """Log when an LLM encounters an error"""
-        self.logger.error(f"[LLM ERROR] {str(error)}")
-    
-    # Chain events
-    def on_chain_start(self, serialized, inputs, **kwargs):
-        """Log when a chain starts processing"""
-        self.step_counts["chain"] += 1
-        event_id = f"chain_{self.step_counts['chain']}"
-        self.start_times[event_id] = time.time()
-        
-        chain_name = kwargs.get('name', serialized.get('id', ['unnamed'])[-1])
-        self.logger.debug(f"[CHAIN START] {chain_name}")
-        
-        if self.logger.isEnabledFor(logging.DEBUG):
-            formatted_inputs = self._format_dict(inputs)
-            self.logger.debug(f"[CHAIN INPUTS] {pprint.pformat(formatted_inputs, compact=True)}")  # No truncation
-            
-    def on_chain_end(self, outputs, **kwargs):
-        """Log when a chain completes"""
-        chain_name = kwargs.get('name', 'unnamed')
-        event_id = f"chain_{self.step_counts['chain']}"
-        elapsed = self._get_elapsed_time(event_id)
-        
-        self.logger.debug(f"[CHAIN END] {chain_name} {elapsed}")
-        
-        if self.logger.isEnabledFor(logging.DEBUG):
-            formatted_outputs = self._format_dict(outputs)
-            self.logger.debug(f"[CHAIN OUTPUTS] {pprint.pformat(formatted_outputs, compact=True)}")  # No truncation
-            
-    def on_chain_error(self, error, **kwargs):
-        """Log when a chain encounters an error"""
-        chain_name = kwargs.get('name', 'unnamed')
-        self.logger.error(f"[CHAIN ERROR] {chain_name}: {str(error)}")
-        
-        # Include traceback for debugging
-        import traceback
-        self.logger.error(f"[CHAIN ERROR TRACE] {traceback.format_exc()}")
-    
-    # Tool events
-    def on_tool_start(self, serialized, input_str, **kwargs):
-        """Log when a tool starts execution"""
-        self.step_counts["tool"] += 1
-        event_id = f"tool_{self.step_counts['tool']}"
-        self.start_times[event_id] = time.time()
-        
-        tool_name = kwargs.get('name', serialized.get('name', 'unnamed_tool'))
-        self.logger.debug(f"[TOOL START] {tool_name}: {input_str}") 
-        
-    def on_tool_end(self, output, **kwargs):
-        """Log when a tool completes execution"""
-        tool_name = kwargs.get('name', 'unnamed_tool')
-        event_id = f"tool_{self.step_counts['tool']}"
-        elapsed = self._get_elapsed_time(event_id)
-        
-        if isinstance(output, str):
-            output_str = output
-        else:
-            output_str = str(output)
-            
-        self.logger.debug(f"[TOOL END] {tool_name} {elapsed}: {output_str}") 
-        
-    def on_tool_error(self, error, **kwargs):
-        """Log when a tool encounters an error"""
-        tool_name = kwargs.get('name', 'unnamed_tool')
-        self.logger.error(f"[TOOL ERROR] {tool_name}: {str(error)}")
-    
-    # Agent events
-    def on_agent_action(self, action, **kwargs):
-        """Log when an agent decides on an action"""
-        self.logger.debug(f"[AGENT ACTION] Tool: {action.tool}, Input: {action.tool_input}")  
-        
-    def on_agent_finish(self, finish, **kwargs):
-        """Log when an agent completes its execution"""
-        self.logger.debug(f"[AGENT FINISH] {finish.return_values}")
-
-# MISTRAL_SYSPROMPT = "You are an agent with access to a Docker container. Your task is to execute a series of bash commands necessary to achieve a given objective. Respond with the appropriate bash command to execute next, based on the current state and the provided plan. Do not include any additional text or formatting in your response. The packages that are currently installed are sudo, nano, vim, and the dependencies listed in requirements.txt."
-
-
-MISTRAL_SYSPROMPT = "You are an agent with access to a Docker container. Your task is to execute a series of bash commands necessary to achieve a given objective. Respond with the appropriate bash command to execute next, based on the current state and the provided plan. Do not include any additional text or formatting in your response. The packages that are currently installed are standard Linux packages and the Python dependencies listed in requirements.txt. When writing files, do not use editors like nano or vim, use standard bash commands such as output redirection."
-
-summarize_prompt = "Summarize the final results and how it achieves the original objective. For instance, if you were asked to list the files in the current directory, you should summarize the results by listing the files. Format numerical results or lists in an easy to read format, using markdown when suitable."
-
-class ReplanningFormatter(BaseModel):
-    new_plan: str = Field(description="The new plan to begin executing.")
-    done: bool = Field(description="Whether you should continue executing commands.")
-    explanation: str = Field(description="An explanation of how the plan was changed and why these changes were made. Elaborate what commands were run and their results.")
-
-class PlanningFormatter(BaseModel):
-    plan: str = Field(description="The step-by-step plan outlining how to achieve the objective")
-
-class ExecutionFormatter(BaseModel):
-    command: str = Field(description="The bash command to execute next")
-
-class SummarizeFormatter(BaseModel):
-    summary: str = Field(description="A summary of the final results and how it achieves the original objective.")
+from Logging import LoggingCallbackHandler
 
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
@@ -323,9 +151,13 @@ class Brain:
             response = self.planning_llm.invoke(state["messages"][-1].content + planning_prompt)
             self.logger.debug(f"Planning response: {response.plan}")
 
-            plan_message = "📋 **Initial Plan:**\n```\n" + response.plan + "\n```"
+            if 'PLAN MARKED UNSAFE' in response:
+                plan_message = "This agent command is unsafe. Please try another command."
+            else:
+                plan_message = "📋 **Initial Plan:**\n```\n" + response.plan + "\n```"
             # Create thread for the first message
             self.send_discord_msg(plan_message, create_thread=True)
+
             
             return {
                 "messages": state["messages"] + [planning_prompt, AIMessage(content=response.plan)],
@@ -335,6 +167,10 @@ class Brain:
         def execution(state: State):    
             messages = state["messages"] + [HumanMessage(content=execution_prompt)] 
             response = self.execution_llm.invoke(messages)
+            
+            if response.unsafe:
+                self.logger.info("[PLAN MARKED UNSAFE] {}")
+                
             
             # Log the command being executed
             self.logger.info(f"[COMMAND EXECUTED] {response.command}")
@@ -353,8 +189,9 @@ class Brain:
                 cur_shell_outputs.append(self.shell_out_buffer.get())
             
             tool_content_string = f"Shell output: \n {'\n'.join(cur_shell_outputs)}"
-            tool_output = HumanMessage(content=tool_content_string)
+            tool_output = ToolMessage(content=tool_content_string)
 
+            # TODO: when will we see this error string? is this a linux thing?
             if "[ERROR]" in tool_content_string:
                 self.send_discord_msg("❌ **Error:**\n" + tool_content_string)
                 return {
