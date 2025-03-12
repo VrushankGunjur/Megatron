@@ -436,23 +436,23 @@ class Brain:
                 for i, chunk in enumerate(chunks):
                     # Add header/footer to indicate chunking with improved styling
                     if total_chunks > 1:
-                        # First chunk gets special header with message start indicator
-                        if i == 0:
-                            chunk_header = f"📄 **Message ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
-                        # Middle chunks get continuation indicator
-                        elif i < total_chunks - 1:
-                            chunk_header = f"📄 **Continued ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
-                        # Last chunk gets final part indicator
-                        else:
-                            chunk_header = f"📄 **Final Part ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
+                    #     # First chunk gets special header with message start indicator
+                    #     if i == 0:
+                    #         chunk_header = f"📄 **Message ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
+                    #     # Middle chunks get continuation indicator
+                    #     elif i < total_chunks - 1:
+                    #         chunk_header = f"📄 **Continued ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
+                    #     # Last chunk gets final part indicator
+                    #     else:
+                    #         chunk_header = f"📄 **Final Part ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
                         
-                        # Footer varies by position
-                        if i < total_chunks - 1:
-                            chunk_footer = "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ *continued in next message* ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
-                        else:
-                            chunk_footer = "\n\n━━━━━━━━━━━━━━━ **End of Message** ━━━━━━━━━━━━━━━"
+                    #     # Footer varies by position
+                    #     if i < total_chunks - 1:
+                    #         chunk_footer = "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ *continued in next message* ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+                    #     else:
+                    #         chunk_footer = "\n\n━━━━━━━━━━━━━━━ **End of Message** ━━━━━━━━━━━━━━━"
                         
-                        await target.send(f"{chunk_header}{chunk}{chunk_footer}")
+                        await target.send(f"{chunk}")
                     else:
                         await target.send(chunk)
             else:
