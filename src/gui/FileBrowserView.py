@@ -74,86 +74,81 @@ class FileBrowserView(View):
         output_queue = queue.Queue()
         original_callback = self.shell.callback
         
-        # Create initial progress message
-        progress_msg = await self.thread.send(
-            f"⏳ **Refreshing file listing:**\n"
-            f"> Loading directory `{self.current_dir}`..."
-        )
+        # Create initial progress message (one-time)
+        progress_msg = await self.thread.send(f"⏳ **Loading files...**")
         
         try:
             self.shell.set_output_callback(lambda line: output_queue.put(line))
             
-            # Check if directory exists first
-            await progress_msg.edit(content=f"⏳ **Refreshing file listing:**\n> Verifying directory `{self.current_dir}`...")
-            self.shell.execute_command(f"[ -d '{self.current_dir}' ] && echo 'EXISTS' || echo 'NOTFOUND'")
-            await asyncio.sleep(0.5)
+            # OPTIMIZATION 1: Combined shell script for directory validation and file listing
+            combined_script = f"""
+            if [ -d '{self.current_dir}' ]; then
+                echo "DIR_EXISTS"
+                cd '{self.current_dir}' && find . -maxdepth 1 -printf "%y|%f|%s\\n" | grep -v "^\\.|\\.$" | sort
+            else
+                echo "DIR_NOT_FOUND"
+            fi
+            """
             
-            # Check output
-            check_output = []
-            while not output_queue.empty():
-                check_output.append(output_queue.get())
+            # Execute single combined command
+            self.shell.execute_command(combined_script)
             
-            if any('NOTFOUND' in line for line in check_output):
-                await progress_msg.edit(content=f"❌ **Error:** Directory '{self.current_dir}' not found. Returning to default directory.")
-                self.current_dir = "/app"  # Reset to safe default
-                
-                # Update progress message to reflect the directory change
-                await progress_msg.edit(content=f"⏳ **Refreshing file listing:**\n> Switching to directory `{self.current_dir}`...")
+            # OPTIMIZATION 2: Shorter wait time
+            await asyncio.sleep(0.3)
             
-            # Clear queue
-            while not output_queue.empty():
-                output_queue.get()
-                
-            # Now list files in the directory
-            await progress_msg.edit(content=f"⏳ **Refreshing file listing:**\n> Reading files in `{self.current_dir}`...")
-            self.shell.execute_command(f"ls -la '{self.current_dir}'")
-            
-            # Wait for command to finish
-            await asyncio.sleep(1)
-            
-            # Collect output
-            await progress_msg.edit(content=f"⏳ **Refreshing file listing:**\n> Processing file information...")
+            # Process output
             output_lines = []
             while not output_queue.empty():
                 output_lines.append(output_queue.get())
+            
+            # Check directory exists
+            if any('DIR_NOT_FOUND' in line for line in output_lines):
+                await progress_msg.edit(content=f"❌ **Error:** Directory '{self.current_dir}' not found. Returning to default directory.")
+                self.current_dir = "/app"  # Reset to safe default
                 
-            # Parse the file listing
+                # Recursive call to refresh with default directory
+                await self.refresh_file_listing(interaction)
+                return
+            
+            # OPTIMIZATION 3: Parse file listing more efficiently
             files = []
             for line in output_lines:
-                if line.startswith("total") or "SHELL_READY" in line:
+                if '|' not in line or line == "DIR_EXISTS":
                     continue
-                parts = line.split()
-                if len(parts) >= 9:
-                    file_name = " ".join(parts[8:])
-                    file_type = "📁" if line.startswith("d") else "📄"
                     
-                    # Skip . and .. entries for simplicity
+                try:
+                    file_type, file_name, file_size = line.split('|', 2)
+                    # Convert file type (d=directory, f=regular file, etc)
+                    icon = "📁" if file_type.strip() == "d" else "📄"
+                    
+                    # Skip . and .. entries
                     if file_name in [".", ".."]:
                         continue
                         
-                    files.append({
-                        "name": os.path.join(self.current_dir, file_name), 
-                        "type": file_type
-                    })
-            
-            # Update progress with file count
-            await progress_msg.edit(
-                content=f"⏳ **Refreshing file listing:**\n> Found {len(files)} items in `{self.current_dir}`\n> Generating view..."
-            )
+                    # Build full path
+                    full_path = os.path.join(self.current_dir, file_name)
                     
+                    files.append({
+                        "name": full_path, 
+                        "type": icon
+                    })
+                except ValueError:
+                    # Skip invalid lines
+                    continue
+            
             # Create new file browser view
             new_view = FileBrowserView(self.brain, files[:25], self.thread, self.shell, self.active_sessions)
             new_view.current_dir = self.current_dir
             
-            # Send updated view
-            await progress_msg.edit(content=f"✅ **Directory loaded:** `{self.current_dir}`\n> Displaying {min(len(files), 25)} of {len(files)} items")
-            await self.thread.send(f"📁 **Container File Browser ({self.current_dir}):**", view=new_view)
+            # OPTIMIZATION 4: Single final UI update
+            await progress_msg.edit(content=f"✅ **Directory loaded:** `{self.current_dir}`\n> Showing {min(len(files), 25)} of {len(files)} items")
+            await self.thread.send(f"📁 **File Browser ({self.current_dir}):**", view=new_view)
             
             # Confirm refresh
-            await interaction.followup.send(f"File listing refreshed for {self.current_dir}.", ephemeral=True)
+            await interaction.followup.send(f"File listing refreshed.", ephemeral=True)
             
         except Exception as e:
-            await progress_msg.edit(content=f"❌ **Error refreshing directory:**\n```\n{str(e)}\n```")
+            await progress_msg.edit(content=f"❌ **Error:** {str(e)[:100]}")
             await interaction.followup.send("Error refreshing file listing.", ephemeral=True)
         finally:
             self.shell.set_output_callback(original_callback)

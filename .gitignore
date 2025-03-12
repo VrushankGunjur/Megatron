@@ -15,3 +15,4 @@ wheels/
 # Logs
 /logs
 *.log
+logs/
