@@ -11,8 +11,6 @@ RUN apt-get update && apt-get install -y sudo
 # Copy the current directory contents into the container at /app
 COPY . .
 
-ENV DISCORD_TOKEN="MTMzOTczNzAzMjE4MzkwNjM1OA.GRg4CM.7nct2O53xKfyBzlgpkTsUsofN0HpTE-GsmGNG4"
-ENV OPENAI_API_KEY="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"
 ENV PS1="sussybaka"
 
 # Install any dependencies
