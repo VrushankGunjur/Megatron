@@ -177,7 +177,7 @@ class LoggingCallbackHandler(BaseCallbackHandler):
         """Log when an agent completes its execution"""
         self.logger.debug(f"[AGENT FINISH] {finish.return_values}")
 
-MISTRAL_SYSPROMPT = "You are an agent with access to a Docker container. Your task is to execute a series of bash commands to achieve a given objective. Respond with the appropriate bash command to execute next, based on the current state and the provided plan. Do not include any additional text or formatting in your response. The packages that are currently installed are sudo, nano, vim, and the dependencies listed in requirements.txt."
+MISTRAL_SYSPROMPT = "You are an agent with access to a Docker container. Your task is to execute a series of bash commands necessary to achieve a given objective. Respond with the appropriate bash command to execute next, based on the current state and the provided plan. Do not include any additional text or formatting in your response. The packages that are currently installed are standard Linux packages and the Python dependencies listed in requirements.txt. When writing files, do not use editors like nano or vim, use standard bash commands such as output redirection."
 
 class ReplanningFormatter(BaseModel):
     new_plan: str = Field(description="The new plan to begin executing.")
@@ -196,6 +196,7 @@ class State(TypedDict):
     # (in this case, it appends messages to the list, rather than overwriting them)
     messages: Annotated[list, add_messages]
     plan: Annotated[list, add_messages]
+    done: bool
 
 class Brain:
     def __init__(self):
@@ -433,7 +434,7 @@ class Brain:
                 
                 try:
                     output = self.graph.invoke(
-                        {"messages": [sys_prompt, msg]},
+                        {"messages": [sys_prompt, msg], "done": False},
                         config
                     )
                     self.logger.info("Graph execution completed")

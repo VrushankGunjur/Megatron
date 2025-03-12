@@ -83,7 +83,7 @@ async def on_message(message: discord.Message):
         
     # Try to handle with GUI handler
     if hasattr(bot, 'handle_gui_messages'):
-        handled = await bot.handle_gui_messages(bot, message)
+        await bot.handle_gui_messages(bot, message)
         return
         # if handled:
         #     return  # If GUI handled it, don't process further
