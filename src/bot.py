@@ -114,10 +114,6 @@ async def ping(ctx, *, arg=None):
 
 @bot.command(name="debug", help="Shows the current brain state")
 async def debug_state(ctx):
-    # if ctx.author.id not in ALLOWED_USER_IDS:
-    #     await ctx.send("You don't have permission to use this command.")
-    #     return
-        
     # Create a readable summary of the current state
     state_summary = brain.get_debug_info()
     
@@ -130,9 +126,7 @@ async def debug_state(ctx):
 @bot.command(name="agent", help="Run an AI agent task in a new thread")
 async def agent_command(ctx, *, task=None):
     """Execute a task using the AI agent in a dedicated thread"""
-    # if ctx.author.id not in ALLOWED_USER_IDS:
-    #     await ctx.send("⛔ You don't have permission to use this command.")
-    #     return
+
         
     # Make sure a task was provided
     if not task:
@@ -168,6 +162,36 @@ async def agent_command(ctx, *, task=None):
     
     # Acknowledge in the original channel
     await ctx.send(f"Task started in thread: {task_thread.mention}")
+
+@bot.command(name="kill", help="Stop the current agent task")
+async def kill_command(ctx):
+    """Terminate the current thread's brain instance"""
+    # Only process in threads
+    if not isinstance(ctx.channel, discord.Thread):
+        await ctx.send("This command can only be used within a task thread.")
+        return
+    
+    thread_id = ctx.channel.id
+    
+    # Check if this thread has an active brain
+    if thread_id in active_brains:
+        # Get the brain
+        thread_brain = active_brains[thread_id]
+        
+        # Send feedback message
+        await ctx.send("🛑 **Terminating task...**")
+        
+        # Shutdown the brain
+        success = thread_brain.shutdown()
+        
+        # Remove from active brains
+        if success:
+            del active_brains[thread_id]
+            await ctx.send("✅ **Task terminated successfully**")
+        else:
+            await ctx.send("⚠️ **Error terminating task**")
+    else:
+        await ctx.send("No active task found in this thread.")
 
 # Start the bot, connecting it to the gateway
 bot.run(token)

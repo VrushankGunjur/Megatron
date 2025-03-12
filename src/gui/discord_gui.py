@@ -24,25 +24,22 @@ def setup(bot):
     
     @bot.command(name="gui", help="Open a container control panel")
     async def gui_command(ctx):
-        # if ctx.author.id not in bot.allowed_user_ids:
-        #     await ctx.send("⛔ You don't have permission to use this command.")
-        #     return
         
-        # Check if user already has an active GUI thread
-        if ctx.author.id in gui_threads:
-            thread = gui_threads[ctx.author.id]
-            # Verify the thread still exists and is accessible
-            try:
-                await thread.fetch()
-                await ctx.send(f"You already have a control panel open in thread: {thread.mention}")
-                return
-            except discord.NotFound:
-                # Thread was deleted or can't be found, remove from tracking
-                if ctx.author.id in gui_shells:
-                    shell_to_close = gui_shells.pop(ctx.author.id)
-                    shell_to_close.stop()
-                if ctx.author.id in gui_threads:
-                    del gui_threads[ctx.author.id]
+        # # Check if user already has an active GUI thread
+        # if ctx.author.id in gui_threads:
+        #     thread = gui_threads[ctx.author.id]
+        #     # Verify the thread still exists and is accessible
+        #     try:
+        #         await thread.fetch()
+        #         await ctx.send(f"You already have a control panel open in thread: {thread.mention}")
+        #         return
+        #     except discord.NotFound:
+        #         # Thread was deleted or can't be found, remove from tracking
+        #         if ctx.author.id in gui_shells:
+        #             shell_to_close = gui_shells.pop(ctx.author.id)
+        #             shell_to_close.stop()
+        #         if ctx.author.id in gui_threads:
+        #             del gui_threads[ctx.author.id]
         
         # Create a thread for the GUI session
         thread = await ctx.message.create_thread(
@@ -104,12 +101,13 @@ def setup(bot):
 async def handle_gui_messages(bot, message):
     """Process messages related to GUI functionality like terminal sessions and file uploads"""
 
-    if message.content.startswith(bot.command_prefix):
-        print("RAN AGENT IN THE WRONG PLACE")
+    if message.content.startswith(bot.command_prefix + "agent"):
+        print("(waitz) Should not run !agent in a thread")
+        await message.reply(f"Should not run !agent in a thread.")
         return True
 
     # Check if this is in a terminal session thread or a file upload
-    if message.author.id in active_sessions and not message.content.startswith(bot.command_prefix):
+    if message.author.id in active_sessions: #and not message.content.startswith(bot.command_prefix):
         session = active_sessions[message.author.id]
         
         # Terminal session handler

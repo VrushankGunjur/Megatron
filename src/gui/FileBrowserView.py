@@ -58,7 +58,6 @@ class FileBrowserView(View):
         )
         
         # Store in active uploads to handle in on_message
-        # TODO: lock this or use thread safe dict
         self.active_sessions[interaction.user.id] = {
             "type": "file_upload", 
             "channel_id": interaction.channel_id,
@@ -75,10 +74,17 @@ class FileBrowserView(View):
         output_queue = queue.Queue()
         original_callback = self.shell.callback
         
+        # Create initial progress message
+        progress_msg = await self.thread.send(
+            f"⏳ **Refreshing file listing:**\n"
+            f"> Loading directory `{self.current_dir}`..."
+        )
+        
         try:
             self.shell.set_output_callback(lambda line: output_queue.put(line))
             
             # Check if directory exists first
+            await progress_msg.edit(content=f"⏳ **Refreshing file listing:**\n> Verifying directory `{self.current_dir}`...")
             self.shell.execute_command(f"[ -d '{self.current_dir}' ] && echo 'EXISTS' || echo 'NOTFOUND'")
             await asyncio.sleep(0.5)
             
@@ -88,20 +94,25 @@ class FileBrowserView(View):
                 check_output.append(output_queue.get())
             
             if any('NOTFOUND' in line for line in check_output):
-                await self.thread.send(f"❌ **Error:** Directory '{self.current_dir}' not found.")
+                await progress_msg.edit(content=f"❌ **Error:** Directory '{self.current_dir}' not found. Returning to default directory.")
                 self.current_dir = "/app"  # Reset to safe default
+                
+                # Update progress message to reflect the directory change
+                await progress_msg.edit(content=f"⏳ **Refreshing file listing:**\n> Switching to directory `{self.current_dir}`...")
             
             # Clear queue
             while not output_queue.empty():
                 output_queue.get()
                 
             # Now list files in the directory
+            await progress_msg.edit(content=f"⏳ **Refreshing file listing:**\n> Reading files in `{self.current_dir}`...")
             self.shell.execute_command(f"ls -la '{self.current_dir}'")
             
             # Wait for command to finish
             await asyncio.sleep(1)
             
             # Collect output
+            await progress_msg.edit(content=f"⏳ **Refreshing file listing:**\n> Processing file information...")
             output_lines = []
             while not output_queue.empty():
                 output_lines.append(output_queue.get())
@@ -124,16 +135,25 @@ class FileBrowserView(View):
                         "name": os.path.join(self.current_dir, file_name), 
                         "type": file_type
                     })
+            
+            # Update progress with file count
+            await progress_msg.edit(
+                content=f"⏳ **Refreshing file listing:**\n> Found {len(files)} items in `{self.current_dir}`\n> Generating view..."
+            )
                     
             # Create new file browser view
             new_view = FileBrowserView(self.brain, files[:25], self.thread, self.shell, self.active_sessions)
             new_view.current_dir = self.current_dir
             
             # Send updated view
+            await progress_msg.edit(content=f"✅ **Directory loaded:** `{self.current_dir}`\n> Displaying {min(len(files), 25)} of {len(files)} items")
             await self.thread.send(f"📁 **Container File Browser ({self.current_dir}):**", view=new_view)
             
             # Confirm refresh
-            await interaction.followup.send("File listing refreshed.", ephemeral=True)
+            await interaction.followup.send(f"File listing refreshed for {self.current_dir}.", ephemeral=True)
             
+        except Exception as e:
+            await progress_msg.edit(content=f"❌ **Error refreshing directory:**\n```\n{str(e)}\n```")
+            await interaction.followup.send("Error refreshing file listing.", ephemeral=True)
         finally:
             self.shell.set_output_callback(original_callback)

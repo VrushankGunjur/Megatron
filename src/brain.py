@@ -52,6 +52,7 @@ class Brain:
         self.shell = InteractiveShell()
         self.shell.set_output_callback(self._drain_shell)
         self.shell.start()   
+        self._shutdown_flag = False
     
     def _setup_logger(self):
         """Set up a unified logging system with timestamped log files"""
@@ -283,7 +284,7 @@ class Brain:
             self.active_thread = None
 
     def _brain_main(self):
-        while True:
+        while not self._shutdown_flag:
             time.sleep(1)
 
             if not self.incoming_msg_buffer.empty():
@@ -367,3 +368,25 @@ class Brain:
                     break
         
         return "\n".join(info)
+
+    def shutdown(self):
+        """Cleanly shut down the brain and terminate all processes"""
+        self.logger.info("Shutting down brain...")
+        
+        # Set a flag to stop the main thread loop
+        self._shutdown_flag = True
+        
+        # Join the main thread if it's running
+        if hasattr(self, 'mthread') and self.mthread and self.mthread.is_alive():
+            self.logger.info("Waiting for brain thread to terminate...")
+            self.mthread.join(timeout=5)
+        
+        # Stop the shell if it's running
+        if hasattr(self, 'shell') and self.shell:
+            self.logger.info("Stopping shell...")
+            self.shell.stop()
+        
+        # Log the shutdown
+        self.logger.info("Brain shutdown complete")
+        
+        return True
