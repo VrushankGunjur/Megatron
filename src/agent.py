@@ -1,17 +1,19 @@
 import os
-from mistralai import Mistral
+# from mistralai import Mistral
+from openai import OpenAI 
 import discord
 import asyncio
 
-MISTRAL_MODEL = "mistral-large-latest"
+OPENAI_MODEL = "gpt-4o"
 SYSTEM_PROMPT = "Your task is to translate english to bash commands. Respond in a single bash command that can be run directly in the shell, don't use any formatting and respond in plaintext"
 
 
 class MistralAgent:
     def __init__(self):
-        MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-
-        self.client = Mistral(api_key=MISTRAL_API_KEY)
+        # MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+        # self.client = Mistral(api_key=MISTRAL_API_KEY)
+        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Update env variable
+        self.client = OpenAI(api_key=OPENAI_API_KEY)
 
     async def run_async(self, message: discord.Message):
         # The simplest form of an agent

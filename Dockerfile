@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y sudo
 COPY . .
 
 ENV DISCORD_TOKEN="MTMzOTczNzAzMjE4MzkwNjM1OA.GRg4CM.7nct2O53xKfyBzlgpkTsUsofN0HpTE-GsmGNG4"
-ENV MISTRAL_API_KEY="GG92nvhLbocT2jn7YeDmRSK0KmURoGIC"
+ENV OPENAI_API_KEY="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"
 ENV PS1="sussybaka"
 
 # Install any dependencies
