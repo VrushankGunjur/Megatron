@@ -374,10 +374,10 @@ class Brain:
 
             changes_message = (
                 "---\n\n"
-                "## 🔄 **Progress Report**\n\n"
-                "### 📝 **Analysis & Reasoning:**\n"
+                "# 🔄 **Progress Report**\n\n"
+                "## 📝 **Analysis & Reasoning:**\n"
                 f"{response.explanation}\n\n"
-                "### 📋 **Updated Execution Plan:**\n"
+                "## 📋 **Updated Execution Plan:**\n"
                 f"```\n{response.new_plan}\n```\n\n"
             )
 

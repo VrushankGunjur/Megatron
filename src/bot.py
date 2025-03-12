@@ -12,6 +12,7 @@ import random
 
 from shell import InteractiveShell
 from brain import Brain
+import discord_gui
 
 PREFIX = "!"
 
@@ -32,6 +33,8 @@ load_dotenv()
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
+discord_gui.setup(bot)
+
 # Import the Mistral agent from the agent.py file
 # agent = MistralAgent()
 
@@ -42,6 +45,10 @@ token = os.getenv("DISCORD_TOKEN")
 
 brain = Brain()
 
+bot.brain = brain
+bot.allowed_user_ids = ALLOWED_USER_IDS
+
+active_brains = {}  # Dictionary to track active brain instances by thread ID
 
 @bot.event
 async def on_ready():
@@ -67,31 +74,31 @@ async def myid(ctx):
 
 @bot.event
 async def on_message(message: discord.Message):
-    """
-    Called when a message is sent in any channel the bot can see.
-
-    https://discordpy.readthedocs.io/en/latest/api.html#discord.on_message
-    """
-    # Don't delete this line! It's necessary for the bot to process commands.
+    # Process commands first (this will handle !agent and other commands)
     await bot.process_commands(message)
 
-    # Ignore messages from self or other bots to prevent infinite loops.
-    if message.author.bot or message.content.startswith("!"):
+    # Skip if from bot
+    if message.author.bot:
         return
+        
+    # Try to handle with GUI handler
+    if hasattr(bot, 'handle_gui_messages'):
+        handled = await bot.handle_gui_messages(bot, message)
+        return
+        # if handled:
+        #     return  # If GUI handled it, don't process further
+    
+    # Only process regular messages in the main channel
+    if isinstance(message.channel, discord.Thread):
+        return  # Skip processing in threads - these will be handled by their dedicated brains
 
     if message.author.id not in ALLOWED_USER_IDS:
         logger.info(f"User {message.author} is not allowed to use the bot.")
         return
     
-    # Process the message with the agent you wrote
-    # Open up the agent.py file to customize the agent
-    logger.info(f"Processing message from {message.author}: {message.content}")
-
-    # Pass both the message content and the original message object
-    brain.submit_msg(message.content, message_obj=message)
-
-    # Send the response back to the channel
-    await message.reply(f"**Executing your request:**\n> {message.content}")
+    # For messages not handled by commands or GUI, suggest using !agent
+    if "!agent" not in message.content:
+        await message.reply(f"Please use `!agent` command to start a task. For example:\n`!agent {message.content}`")
 
 # Commands
 # This example command is here to show you how to add commands to the bot.
@@ -118,6 +125,52 @@ async def debug_state(ctx):
     
     for chunk in chunks:
         await ctx.send(f"```\n{chunk}\n```")
+
+@bot.command(name="agent", help="Run an AI agent task in a new thread")
+async def agent_command(ctx, *, task=None):
+    """Execute a task using the AI agent in a dedicated thread"""
+    if ctx.author.id not in ALLOWED_USER_IDS:
+        await ctx.send("⛔ You don't have permission to use this command.")
+        return
+        
+    # Make sure a task was provided
+    if not task:
+        await ctx.send("Please provide a task for the agent to execute. For example: `!agent Build a sentiment analysis tool`")
+        return
+        
+    # Create a thread for this specific task
+    task_thread = await ctx.message.create_thread(
+        name=f"Task: {task[:50]}" + ("..." if len(task) > 50 else ""),
+        auto_archive_duration=60  # Minutes until auto-archive
+    )
+    
+    # Create a new Brain instance specifically for this task
+    task_brain = Brain()
+    
+    # Set up the new brain
+    task_brain.discord_loop = asyncio.get_running_loop()
+    task_brain.channel = task_thread  # Set the channel directly to the thread
+    task_brain.start()
+    
+    # Store this brain in our active_brains dictionary
+    active_brains[task_thread.id] = task_brain
+    
+    # Create a message within the thread 
+    thread_msg = await task_thread.send(f"🧠 **Processing Task**:\n> {task}")
+    
+    # Pass the task to the brain
+    task_brain.submit_msg(task, message_obj=thread_msg)
+    
+    # Acknowledge in the original channel
+    await ctx.send(f"Task started in thread: {task_thread.mention}")
+    
+    # Set up thread archive listener to clean up the brain when thread is archived
+    @bot.event
+    async def on_thread_update(before, after):
+        if after.id in active_brains and not before.archived and after.archived:
+            # Clean up the brain when the thread is archived
+            brain_to_close = active_brains.pop(after.id)
+            del brain_to_close  # This will trigger __del__ which cleans up resources
 
 # Start the bot, connecting it to the gateway
 bot.run(token)
