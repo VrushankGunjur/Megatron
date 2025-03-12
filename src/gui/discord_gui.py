@@ -57,7 +57,7 @@ def setup(bot):
         gui_shells[ctx.author.id] = dedicated_shell
         
         # Create and send the control panel in the thread with the dedicated shell
-        panel = ContainerControlPanel(bot.brain, ctx, thread, dedicated_shell, active_sessions)
+        panel = ContainerControlPanel(bot.brain, ctx, thread, dedicated_shell, active_sessions, gui_threads)
         await panel._send_welcome_message() 
         await thread.send("## 🎛️ **Container Control Panel**", view=panel)
         
@@ -101,10 +101,20 @@ def setup(bot):
 async def handle_gui_messages(bot, message):
     """Process messages related to GUI functionality like terminal sessions and file uploads"""
 
-    # if message.content.startswith(bot.command_prefix + "agent"):
-    #     print("(waitz) Should not run !agent in a thread")
-    #     await message.reply(f"Should not run !agent in a thread.")
-    #     return True
+    # Find if message is in any GUI thread
+    thread_id = message.channel.id
+    thread_owner = None
+    for user_id, thread in gui_threads.items():
+        if thread.id == thread_id:
+            thread_owner = user_id
+            break
+    
+    # If this is a GUI thread but the message author isn't the owner, prevent interaction
+    if thread_owner is not None and message.author.id != thread_owner:
+        # Only respond if they're trying to use a command
+        if message.content and not message.content.startswith(bot.command_prefix):
+            await message.reply("⛔ **Access denied**: Only the user who created this GUI session can interact with it.")
+        return True  # Message was handled (blocked)
 
     # Check if this is in a terminal session thread or a file upload
     if message.author.id in active_sessions: #and not message.content.startswith(bot.command_prefix):

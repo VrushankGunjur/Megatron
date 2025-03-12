@@ -2,9 +2,8 @@ import threading
 import time
 import queue
 from shell import InteractiveShell
-import discord
 import asyncio
-from agent import MistralAgent
+from datetime import datetime
 
 from typing import Annotated
 from typing_extensions import TypedDict
@@ -12,7 +11,7 @@ from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain.schema import SystemMessage
-from langchain_core.messages import ToolMessage, AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from langchain_mistralai import ChatMistralAI
 from langchain_core.rate_limiters import InMemoryRateLimiter
@@ -45,6 +44,12 @@ class Brain:
         
         self.incoming_msg_buffer = queue.Queue()        # thread safe
         self.shell_out_buffer = queue.Queue()           # thread safe
+
+        # Progress tracking
+        self.current_state = "idle"
+        self.progress_updates = []
+        self.last_progress_time = None
+        self.progress_update_interval = 30  # send progress updates every 30 seconds for long-running tasks
 
         self.logger = self._setup_logger()
         self.logging_handler = LoggingCallbackHandler(self.logger)
@@ -143,11 +148,14 @@ class Brain:
 
         def route_tools(state: State):
             if state["done"]:
+                self._add_state_transition("routing", "Task complete, moving to summarization")
                 return "summarize"
             else: 
+                self._add_state_transition("routing", "Continuing execution")
                 return "execution"
 
         def planning(state: State) -> State:
+            self._add_state_transition("planning", "Started planning phase")
             self.logger.info("Starting planning phase")
             response = self.planning_llm.invoke(state["messages"][-1].content + planning_prompt)
             self.logger.debug(f"Planning response: {response.plan}")
@@ -157,24 +165,25 @@ class Brain:
             else:
                 plan_message = "📋 **Initial Plan:**\n```\n" + response.plan + "\n```"
             # Create thread for the first message
-            self.send_discord_msg(plan_message, create_thread=True)
-
+            self.send_discord_msg(plan_message)
             
+            self._add_progress_update("Planning phase complete")
             return {
                 "messages": state["messages"] + [planning_prompt, AIMessage(content=response.plan)],
                 "done": False
             }
             
         def execution(state: State):    
+            self._add_state_transition("execution", "Executing next command")
             messages = state["messages"] + [HumanMessage(content=execution_prompt)] 
             response = self.execution_llm.invoke(messages)
             
             if response.unsafe:
                 self.logger.info("[PLAN MARKED UNSAFE] {}")
-                
             
             # Log the command being executed
             self.logger.info(f"[COMMAND EXECUTED] {response.command}")
+            self._add_progress_update(f"Executing: {response.command}")
             
             # Send command execution message to Discord
             command_message = f"⚙️ **Executing Command:**\n```bash\n{response.command}\n```"
@@ -185,15 +194,18 @@ class Brain:
             cur_shell_outputs = []
 
             # TODO: we need something more robust than waiting
+            self._add_progress_update("Waiting for command output...")
             time.sleep(1)
             while not self.shell_out_buffer.empty():
                 cur_shell_outputs.append(self.shell_out_buffer.get())
             
             tool_content_string = f"Shell output: \n {'\n'.join(cur_shell_outputs)}"
             tool_output = HumanMessage(content=tool_content_string)
+            self._add_progress_update("Received command output")
 
             # TODO: when will we see this error string? is this a linux thing?
             if "[ERROR]" in tool_content_string:
+                self._add_state_transition("error", "Command execution failed")
                 self.send_discord_msg("❌ **Error:**\n" + tool_content_string)
                 return {
                     "messages": state["messages"],
@@ -206,6 +218,7 @@ class Brain:
             }
 
         def replanning(state: State):
+            self._add_state_transition("replanning", "Analyzing results and updating plan")
             # wrap in SystemPrompt
             messages = state["messages"] + [HumanMessage(content="PLAN: " + replanning_prompt)]
             response = self.replanning_llm.invoke(messages)
@@ -221,6 +234,11 @@ class Brain:
 
             # Send to the thread - no need to create a new one
             self.send_discord_msg(changes_message)
+            
+            if response.done:
+                self._add_progress_update("Task complete, preparing summary")
+            else:
+                self._add_progress_update("Plan updated, continuing execution")
 
             return {
                 "messages": state["messages"] + [HumanMessage(content="PLAN: " + replanning_prompt), AIMessage(content=response.new_plan)],
@@ -228,6 +246,7 @@ class Brain:
             }
         
         def summarize(state: State):
+            self._add_state_transition("summarizing", "Creating final task summary")
             assert state["done"], "Task graph should be done"
             self.logger.info("Starting summarization phase")
             response = self.summarize_llm.invoke("\n".join([state["messages"][i].content for i in range(len(state["messages"]))]) + summarize_prompt)
@@ -239,6 +258,7 @@ class Brain:
             
             # if response.done:
             self.send_discord_msg("🎉 **All done!** Task completed successfully.")
+            self._add_state_transition("idle", "Task completed successfully")
 
             return {
                 "messages": state["messages"] + [summarize_prompt, AIMessage(content=response.summary)],
@@ -269,6 +289,8 @@ class Brain:
         self.shell_out_buffer.put(line)
         
         self.logger.info(f"Brain received line from shell: `{line}`")
+        if self.current_state == "execution":
+            self._add_progress_update(f"Shell output: {line[:50]}{'...' if len(line) > 50 else ''}")
 
     def __del__(self):
         self.mthread.join()
@@ -278,6 +300,7 @@ class Brain:
     def submit_msg(self, msg: str, message_obj=None):
         # Replace print with logger
         self.logger.info(f"Message being submitted to brain: `{msg}`")
+        self._add_state_transition("receiving", f"Received new task: {msg[:50]}{'...' if len(msg) > 50 else ''}")
         self.incoming_msg_buffer.put(msg)
         # Store the original message for thread creation
         if message_obj is not None:
@@ -289,9 +312,13 @@ class Brain:
         while not self._shutdown_flag:
             time.sleep(1)
 
+            # Check if we should send a progress update
+            self._check_progress_update()
+
             if not self.incoming_msg_buffer.empty():
                 sys_prompt = SystemMessage(MISTRAL_SYSPROMPT)
                 msg = self.incoming_msg_buffer.get()
+                self._add_state_transition("processing", "Processing task")
 
                 # Just use the logging handler - it will route to bot_debug.log
                 config = {
@@ -305,11 +332,62 @@ class Brain:
                         config
                     )
                     self.logger.info("Graph execution completed")
+                    self._add_state_transition("idle", "Task processing complete")
                 except Exception as e:
                     self.logger.error(f"Error during graph execution: {str(e)}")
+                    self._add_state_transition("error", f"Error: {str(e)}")
                     self.send_discord_msg(f"An error occurred: {str(e)}")
 
             # check if there is a new message in the shell_out_buffer
+
+    # Track state transitions
+    def _add_state_transition(self, new_state, message):
+        """Change the current state and log the transition"""
+        old_state = self.current_state
+        self.current_state = new_state
+        update = self._add_progress_update(f"State: {old_state} → {new_state}: {message}")
+        return update
+        
+    # Add progress update entry with timestamp
+    def _add_progress_update(self, message):
+        """Add a timestamped progress update"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        update = f"[{timestamp}] {message}"
+        self.progress_updates.append(update)
+        self.logger.info(f"Progress: {update}")
+        
+        # Reset the progress update timer
+        self.last_progress_time = datetime.now()
+        
+        # Keep only the most recent 100 updates
+        if len(self.progress_updates) > 100:
+            self.progress_updates = self.progress_updates[-100:]
+        return update
+        
+    # Check if we should send a progress update to Discord
+    def _check_progress_update(self):
+        """Send periodic progress updates for long-running tasks"""
+        if (self.last_progress_time and 
+            self.current_state not in ["idle", "error"] and
+            self.active_thread and
+            (datetime.now() - self.last_progress_time).seconds > self.progress_update_interval):
+            
+            # Send a progress update
+            update_msg = f"⏳ **Status Update:** Currently in `{self.current_state}` state"
+            if len(self.progress_updates) > 0:
+                update_msg += f"\n\nLast action: {self.progress_updates[-1]}"
+                
+            self.send_discord_msg(update_msg)
+            self.last_progress_time = datetime.now()
+    
+    # Get current progress info
+    def get_progress_info(self):
+        """Returns a structured object with current progress information"""
+        return {
+            "current_state": self.current_state,
+            "updates": self.progress_updates[-10:],  # Last 10 updates
+            "time_in_state": (datetime.now() - self.last_progress_time).seconds if self.last_progress_time else 0
+        }
 
     # Discord message sending with thread support
     def send_discord_msg(self, msg: str, create_thread=False):
@@ -343,6 +421,18 @@ class Brain:
         """Returns a formatted string with current brain state for debugging"""
         info = []
         
+        # Add progress information
+        info.append("=== PROGRESS STATUS ===")
+        info.append(f"Current State: {self.current_state.upper()}")
+        
+        # Add recent progress updates
+        if self.progress_updates:
+            info.append("\nRecent Progress:")
+            for update in self.progress_updates[-5:]:
+                info.append(f"• {update}")
+        
+        info.append("\n")
+                
         # Add current execution plan
         if hasattr(self, 'graph') and self.graph:
             last_state = getattr(self.graph, '_last_state', {})
@@ -387,6 +477,11 @@ class Brain:
         if hasattr(self, 'shell') and self.shell:
             self.logger.info("Stopping shell...")
             self.shell.stop()
+        
+        self.graph = None
+        self.graph_builder = None
+        import gc 
+        gc.collect()
         
         # Log the shutdown
         self.logger.info("Brain shutdown complete")

@@ -11,7 +11,7 @@ from .StatusView import StatusView
 class ContainerControlPanel(View):
     """Main control panel with buttons for different container operations"""
     
-    def __init__(self, brain, ctx, thread, shell, active_sessions):
+    def __init__(self, brain, ctx, thread, shell, active_sessions, gui_threads):
         super().__init__(timeout=None)  # No timeout - controls stay active until thread is archived
         self.brain = brain
         self.ctx = ctx
@@ -19,6 +19,7 @@ class ContainerControlPanel(View):
         self.user_id = ctx.author.id
         self.shell = shell
         self.active_sessions = active_sessions
+        self.gui_threads = gui_threads
         
     async def _send_welcome_message(self):
         """Send a welcome message with container info for better context"""
@@ -43,7 +44,7 @@ class ContainerControlPanel(View):
                 "- Browse and manage files\n"
                 "- Monitor container status\n"
                 "- Start an interactive terminal\n\n"
-                "*This panel will remain active until the thread is archived.*"
+                "⚠️ **Note:** Only the user who created this session can interact with it.\n\n"
             ))
             
         except Exception as e:
@@ -60,6 +61,27 @@ class ContainerControlPanel(View):
         finally:
             self.shell.set_output_callback(original_callback)
         
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Only allow the original user to interact with this view"""
+        # Find the thread owner
+        thread_id = interaction.channel.id
+        thread_owner = None
+        
+        for user_id, thread in self.gui_threads.items():
+            if thread.id == thread_id:
+                thread_owner = user_id
+                break
+        
+        # If the interaction user is not the thread owner, deny it
+        if thread_owner is not None and interaction.user.id != thread_owner:
+            await interaction.response.send_message(
+                "⛔ **Access denied**: Only the user who created this GUI session can use these controls.",
+                ephemeral=True
+            )
+            return False
+        
+        return True
+
     # ===== COMMAND EXECUTION =====
     @discord.ui.button(label="Run Command", style=discord.ButtonStyle.primary, emoji="🔧", row=0)
     async def run_command_button(self, interaction: discord.Interaction, button: discord.ui.Button):

@@ -66,7 +66,15 @@ execution_prompt = """
     achieve the next objective that hasn't been completed. Please
     generate only a bash command with no other text.
 
-    NOTE: IF THIS COMMAND IS UNSAFE FOR THE TERMINAL, RETURN [PLAN MARKED UNSAFE] and NOTHING ELSE. 
+    When installing packages, install multiple packages in the same step if possible.
+
+    NOTE: IF THIS COMMAND IS UNSAFE FOR THE TERMINAL, RETURN [PLAN MARKED
+    UNSAFE] and NOTHING ELSE. Also, mark the unsafe flag to be True. Anything
+    which satisifies the following is unsafe:
+    - Deletes sensitive files
+    - Wastes resources
+    - Downloads bad material
+    - Engages in malicious, adversarial, or dangerous behavior
 """
 
 summarize_prompt = """" 
