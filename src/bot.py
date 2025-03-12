@@ -209,6 +209,89 @@ async def kill_command(ctx):
     else:
         await ctx.send("No active task found in this thread.")
 
+@bot.command(name="help", help="Show detailed help information about all commands")
+async def help_command(ctx):
+    """Provide comprehensive help information about all bot commands and features"""
+    # Create an embed for better formatting
+    embed = discord.Embed(
+        title="🤖 Bot Command Guide",
+        description="Complete guide to using this AI assistant bot",
+        color=discord.Color.blue()
+    )
+    
+    # Agent Command
+    embed.add_field(
+        name="!agent [task]",
+        value=(
+            "**Purpose:** An AI agentic coding tool for teams.\n"
+            "**Usage:** `!agent [your task in plain English]`\n"
+            "**Example:** `!agent Create a Python script that prints Hello World`\n"
+            "**How it works:**\n"
+            "1. Creates a dedicated thread for your task\n"
+            "2. Breaks down the task into steps\n"
+            "3. Executes commands in the container\n"
+            "4. Updates you on progress and produces a summary\n"
+            "**Note:** Each task runs in its own isolated thread"
+        ),
+        inline=False
+    )
+    
+    # GUI Command
+    embed.add_field(
+        name="!gui",
+        value=(
+            "**Purpose:** Open a graphical control panel for the container\n"
+            "**Usage:** `!gui`\n"
+            "**Features:**\n"
+            "• **Run Command:** Execute single bash commands\n"
+            "• **Terminal Session:** Interactive shell within Discord\n"
+            "• **File Manager:** Browse, upload and download files\n"
+            "• **Container Status:** View system resources and metrics\n"
+            "**Note:** Only the user who created the GUI can interact with it"
+        ),
+        inline=False
+    )
+    
+    # Kill Command
+    embed.add_field(
+        name="!kill",
+        value=(
+            "**Purpose:** Terminate the current agent task or GUI session\n"
+            "**Usage:** Type `!kill` in any task thread to stop it\n"
+            "**For GUI sessions:** Type `!kill` in the GUI thread\n"
+            "**Note:** Only works in threads, not in the main channel"
+        ),
+        inline=False
+    )
+    
+    # Debug Command
+    embed.add_field(
+        name="!debug",
+        value=(
+            "**Purpose:** View the current state of the AI agent brain\n"
+            "**Usage:** `!debug`\n"
+            "**Shows:** Current state, recent progress, execution plan, and recent commands\n"
+            "**Note:** Useful for troubleshooting when tasks aren't working as expected"
+        ),
+        inline=False
+    )
+    
+    # Other Info
+    embed.add_field(
+        name="Additional Information",
+        value=(
+            "• Each agent task runs in its own isolated thread\n"
+            "• You can have multiple tasks running simultaneously\n"
+            "• In terminal sessions, type `exit` to end the session\n"
+            "• File uploads are limited to 7MB\n"
+            "• Type `!myid` to get your Discord user ID"
+        ),
+        inline=False
+    )
+    
+    embed.set_footer(text="All commands use the ! prefix")
+    await ctx.send(embed=embed)
+
 # # Register signal handlers for graceful shutdown
 # def signal_handler(sig, frame):
 #     """Handle termination signals and send shutdown message"""
