@@ -104,8 +104,17 @@ class InteractiveShell:
 
         with self.lock:
 
-            if not self.running or self.process.poll() is not None:
+
+
+            if not self.running:
                 error_msg = "[ERROR] Shell is not running"
+                self.output_buffer.put(error_msg)
+                if self.callback:
+                    self.callback(error_msg)
+                return False
+            
+            if self.process.poll() is not None:
+                error_msg = "[ERROR] Shell process has terminated"
                 self.output_buffer.put(error_msg)
                 if self.callback:
                     self.callback(error_msg)
