@@ -144,7 +144,7 @@ planning_prompt = """
     must be taken to achieve the objective. Provide a numbered list in logical
     order for the steps that must be taken to achieve the objective.
 
-    YOUR PLAN MUST CARRY OUT THE OBJECTIVE FULLY.
+    YOUR PLAN MUST CARRY OUT THE OBJECTIVE FULLY. FORMAT YOUR PLAN AS A DISCORD MESSAGE.
 """
 
 replanning_prompt = """
@@ -161,7 +161,7 @@ replanning_prompt = """
     1. If the overall objective has been achieved
     2. An updated plan, with each finished objective being followed by [FINISHED]
 
-    YOUR PLAN MUST CARRY OUT THE OBJECTIVE FULLY, AND THE EXPLICIT OBJECTIVE ONLY.
+    YOUR PLAN MUST CARRY OUT THE OBJECTIVE FULLY, AND THE EXPLICIT OBJECTIVE ONLY. FORMAT YOUR NEW PLAN AND EXPLANATION AS A DISCORD MESSAGE.
 """
 
 execution_prompt = """
@@ -170,6 +170,8 @@ execution_prompt = """
     and their outputs so far. Your job is to come up with a bash command to run to
     achieve the next objective that hasn't been completed. Please
     generate only a bash command with no other text.
+
+    YOUR COMMAND MUST BE FORMATTED AS A BASH COMMAND.
 """
 
 summarize_prompt = """" 

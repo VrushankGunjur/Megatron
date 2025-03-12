@@ -406,28 +406,49 @@ class Brain:
         assert self.discord_loop is not None and self.discord_loop.is_running(), \
                 "Trying to send msg before discord loop is initialized"
         
-        self.logger.info(f"Brain sending message to discord: `{msg}`")
+        self.logger.info(f"Brain sending message to discord: `{msg}...`")
         asyncio.run_coroutine_threadsafe(self._send_discord_msg(msg, create_thread), self.discord_loop)
 
     async def _send_discord_msg(self, msg: str, create_thread=False):
-        self.logger.info(f"Channel: {self.channel}")
-        self.logger.info(f"Event loop: {self.discord_loop}")
-        self.logger.info(f"Brain sending message to discord: `{msg}`")
-        
-        if self.active_thread:
-            # If we have an active thread, send there
-            await self.active_thread.send(msg)
-        elif create_thread and self.original_message:
-            # Create a new thread from the original message
-            task_name = self.original_message.content[:50] + "..." if len(self.original_message.content) > 50 else self.original_message.content
-            self.active_thread = await self.original_message.create_thread(
-                name=f"Task: {task_name}", 
-                auto_archive_duration=60  # Minutes until thread auto-archives
-            )
-            await self.active_thread.send(msg)
-        else:
-            # Default fallback - send to the channel
-            await self.channel.send(msg)
+        try:
+            if self.active_thread:
+                # If we have an active thread, send there
+                # Make sure not to exceed Discord message length limits 
+                if len(msg) > 1900:
+                    chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
+                    for chunk in chunks:
+                        await self.active_thread.send(chunk)
+                else:
+                    await self.active_thread.send(msg)
+            elif create_thread and self.original_message:
+                # Create a new thread from the original message
+                task_name = self.original_message.content[:50] + "..." if len(self.original_message.content) > 50 else self.original_message.content
+                self.active_thread = await self.original_message.create_thread(
+                    name=f"Task: {task_name}", 
+                    auto_archive_duration=60  # Minutes until thread auto-archives
+                )
+                # Add a small delay to ensure thread is ready
+                await asyncio.sleep(0.5)
+                # Split message if needed
+                if len(msg) > 1900:
+                    chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
+                    for chunk in chunks:
+                        await self.active_thread.send(chunk)
+                else:
+                    await self.active_thread.send(msg)
+            else:
+                # Default fallback - send to the channel
+                # Split message if needed
+                if len(msg) > 1900:
+                    chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
+                    for chunk in chunks:
+                        await self.channel.send(chunk)
+                else:
+                    await self.channel.send(msg)
+        except Exception as e:
+            self.logger.error(f"Error sending message to Discord: {str(e)}")
+            # Try a simplified message as fallback
+            await self.channel.send(f"Error displaying formatted message. Please check logs.")
 
     def get_debug_info(self):
         """Returns a formatted string with current brain state for debugging"""
