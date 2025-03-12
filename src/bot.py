@@ -213,114 +213,205 @@ async def kill_command(ctx):
 @bot.command(name="help", help="Show detailed help information about all commands")
 async def help_command(ctx):
     """Provide comprehensive help information about all bot commands and features"""
-    # Create an embed for better formatting
+    
+    # Create a more visually striking embed with thumbnail
     embed = discord.Embed(
-        title="🤖 Bot Command Guide",
-        description="Complete guide to using this AI assistant bot",
-        color=discord.Color.blue()
+        title="📚 Command Guide",
+        description="Your AI-powered container assistant",
+        color=discord.Color.from_rgb(114, 137, 218),  # Discord blurple color
+        timestamp=ctx.message.created_at
     )
+        
     
-    # Agent Command
     embed.add_field(
-        name="!agent [task]",
-        value=(
-            "**Purpose:** An AI agentic coding tool for teams.\n"
-            "**Usage:** `!agent [your task in plain English]`\n"
-            "**Example:** `!agent Create a Python script that prints Hello World`\n"
-            "**How it works:**\n"
-            "1. Creates a dedicated thread for your task\n"
-            "2. Breaks down the task into steps\n"
-            "3. Executes commands in the container\n"
-            "4. Updates you on progress and produces a summary\n"
-            "**Note:** Each task runs in its own isolated thread"
-        ),
+        name="🤖 __AI Agent Commands__",
+        value="─────────────────────",
         inline=False
     )
     
-    # GUI Command
+    # Agent Command - Enhanced with emoji and formatting
     embed.add_field(
-        name="!gui",
+        name="📋 !agent [task]",
         value=(
-            "**Purpose:** Open a graphical control panel for the container\n"
-            "**Usage:** `!gui`\n"
-            "**Features:**\n"
-            "• **Run Command:** Execute single bash commands\n"
-            "• **Terminal Session:** Interactive shell within Discord\n"
-            "• **File Manager:** Browse, upload and download files\n"
-            "• **Container Status:** View system resources and metrics\n"
-            "**Note:** Only the user who created the GUI can interact with it"
-        ),
-        inline=False
-    )
-    
-    # Kill Command
-    embed.add_field(
-        name="!kill",
-        value=(
-            "**Purpose:** Terminate the current agent task or GUI session\n"
-            "**Usage:** Type `!kill` in any task thread to stop it\n"
-            "**For GUI sessions:** Type `!kill` in the GUI thread\n"
-            "**Note:** Only works in threads, not in the main channel"
+            "Run your task with AI assistance\n"
+            "> `!agent Create a Python script that prints Hello World`\n"
+            "```\n"
+            "• Creates a dedicated thread for your task\n"
+            "• Breaks down the task into steps\n"
+            "• Executes commands automatically\n"
+            "• Provides progress updates and summary\n"
+            "```"
         ),
         inline=False
     )
     
     # Debug Command
     embed.add_field(
-        name="!debug",
+        name="🔍 !debug",
         value=(
-            "**Purpose:** View the current state of the AI agent brain\n"
-            "**Usage:** `!debug`\n"
-            "**Shows:** Current state, recent progress, execution plan, and recent commands\n"
-            "**Note:** Useful for troubleshooting when tasks aren't working as expected"
+            "View the current state of the AI agent\n"
+            "> `!debug`\n"
+            "```\n"
+            "• Shows current state and progress\n"
+            "• Displays execution plan\n"
+            "• Lists recent commands and results\n"
+            "```"
         ),
         inline=False
     )
     
-    # Other Info
+    # Container Management Category
     embed.add_field(
-        name="Additional Information",
+        name="🖥️ __Container Management__",
+        value="─────────────────────",
+        inline=False
+    )
+    
+    # GUI Command - Enhanced
+    embed.add_field(
+        name="🎛️ !gui",
         value=(
-            "• Each agent task runs in its own isolated thread\n"
-            "• You can have multiple tasks running simultaneously\n"
-            "• In terminal sessions, type `exit` to end the session\n"
-            "• File uploads are limited to 7MB\n"
-            "• Type `!myid` to get your Discord user ID"
+            "Open a graphical control panel\n"
+            "> `!gui`\n"
+            "```\n"
+            "• Run Command: Execute bash commands\n"
+            "• Terminal: Start an interactive shell\n"
+            "• File Manager: Browse and transfer files\n"
+            "• Status: View system resources\n"
+            "```"
         ),
         inline=False
     )
     
+    # Process Management Category
+    embed.add_field(
+        name="⚙️ __Process Management__",
+        value="─────────────────────",
+        inline=False
+    )
+    
+    # Kill Command
+    embed.add_field(
+        name="🛑 !kill",
+        value=(
+            "Terminate active tasks\n"
+            "> `!kill`\n"
+            "```\n"
+            "• Use in a task thread to stop it\n"
+            "• Works on agent tasks and GUI sessions\n"
+            "• Only available in threads\n"
+            "```"
+        ),
+        inline=False
+    )
+    
+    # Utility Commands Category
+    embed.add_field(
+        name="🔧 __Utility Commands__",
+        value="─────────────────────",
+        inline=False
+    )
+    
+    # Other Commands
+    embed.add_field(
+        name="🆔 !myid",
+        value="Display your Discord user ID",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="🏓 !ping",
+        value="Check if the bot is responding",
+        inline=True
+    )
+    
+    # Tips in a nice box
+    embed.add_field(
+        name="💡 __Tips__",
+        value=(
+            "```\n"
+            "• Each agent task runs in its own thread\n"
+            "• Type 'exit' to end terminal sessions\n"
+            "• File uploads limited to 7MB\n"
+            "• Multiple tasks can run simultaneously\n"
+            "```"
+        ),
+        inline=False
+    )
+    
+    # Better footer with version info
     embed.set_footer(text="All commands use the ! prefix")
+    
     await ctx.send(embed=embed)
 
-# # Register signal handlers for graceful shutdown
-# def signal_handler(sig, frame):
-#     """Handle termination signals and send shutdown message"""
-#     print(f"Received signal {sig}, shutting down...")
+@bot.command(name="about", help="Show information about the bot and repository")
+async def about_command(ctx):
+    """Display information about the bot and its GitHub repository"""
     
-#     # Create a new event loop for the shutdown message
-#     loop = asyncio.new_event_loop()
-#     asyncio.set_event_loop(loop)
+    # Create an attractive embed with GitHub info
+    embed = discord.Embed(
+        title="🤖 Megatron AI Assistant",
+        url="https://github.com/VrushankGunjur/Megatron",
+        description="An AI-powered Discord bot that executes tasks in a containerized environment",
+        color=discord.Color.from_rgb(36, 41, 46),  # GitHub dark color
+        timestamp=ctx.message.created_at
+    )
     
-#     # Send shutdown message and close
-#     try:
-#         loop.run_until_complete(send_shutdown_message())
-#     finally:
-#         loop.close()
-#         sys.exit(0)
-
-# Register the signal handlers
-# signal.signal(signal.SIGINT, signal_handler)
-# signal.signal(signal.SIGTERM, signal_handler)
-
-# Also register an atexit handler as a backup
-# def exit_handler():
-#     """Handle normal program exit"""
-#     # Only attempt sending message if we have an event loop already
-#     if asyncio.get_event_loop().is_running():
-#         asyncio.create_task(send_shutdown_message())
-
-# atexit.register(exit_handler)
+    # Add GitHub logo as thumbnail
+    embed.set_thumbnail(url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+    
+    # Add repository information
+    embed.add_field(
+        name="📦 Repository",
+        value="[VrushankGunjur/Megatron](https://github.com/VrushankGunjur/Megatron)",
+        inline=False
+    )
+    
+    # Add features section
+    embed.add_field(
+        name="✨ Features",
+        value=(
+            "• Execute bash commands in a Docker container\n"
+            "• Interactive terminal through Discord\n"
+            "• AI-powered task planning and execution\n"
+            "• File management and container control\n"
+            "• Multi-user support with dedicated sessions"
+        ),
+        inline=False
+    )
+    
+    # Add technologies used
+    embed.add_field(
+        name="🔧 Technologies",
+        value=(
+            "• Python with discord.py\n"
+            "• Docker containerization\n"
+            "• LangChain & LangGraph\n"
+            "• OpenAI/Mistral AI integration\n"
+            "• Interactive shell execution"
+        ),
+        inline=True
+    )
+    
+    # Add contributors section
+    embed.add_field(
+        name="👥 Contributors",
+        value=(
+            "• [Vrushank Gunjur](https://github.com/VrushankGunjur)\n"
+            "• Kenny Dao\n"
+            "• Alex\n"
+            "• Stanley"
+        ),
+        inline=True
+    )
+    
+    # Add footer with GitHub info
+    embed.set_footer(
+        text="View source code and contribute on GitHub",
+        icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+    )
+    
+    await ctx.send(embed=embed)
 
 # Start the bot, connecting it to the gateway
 bot.run(token)
