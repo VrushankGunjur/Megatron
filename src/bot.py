@@ -1,10 +1,12 @@
 import os
 import discord
 import logging
+import signal
+import atexit
+import sys
 
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
-# from agent import MistralAgent
 import subprocess
 import time
 import asyncio
@@ -51,6 +53,18 @@ bot.brain = brain
 
 active_brains = {}  # Dictionary to track active brain instances by thread ID
 
+# Create a function to send a shutdown message
+async def send_shutdown_message():
+    """Send a message when the bot is shutting down"""
+    try:
+        channel = bot.get_channel(1339738567177670748)  # Same channel as in on_ready
+        if channel:
+            await channel.send("🔌 **Bot is shutting down...**")
+            # Give Discord API a moment to process the message
+            await asyncio.sleep(1)
+    except Exception as e:
+        print(f"Failed to send shutdown message: {e}")
+
 @bot.event
 async def on_ready():
     """
@@ -61,8 +75,10 @@ async def on_ready():
     """
     logger.info(f"{bot.user} has connected to Discord!")
     brain.discord_loop = asyncio.get_running_loop()
-    brain.channel = bot.get_channel(1339738567177670748)
+    channel = bot.get_channel(1339738567177670748)
+    brain.channel = channel
     brain.start()
+    
 
 @bot.command()
 async def myid(ctx):
@@ -192,6 +208,35 @@ async def kill_command(ctx):
             await ctx.send("⚠️ **Error terminating task**")
     else:
         await ctx.send("No active task found in this thread.")
+
+# # Register signal handlers for graceful shutdown
+# def signal_handler(sig, frame):
+#     """Handle termination signals and send shutdown message"""
+#     print(f"Received signal {sig}, shutting down...")
+    
+#     # Create a new event loop for the shutdown message
+#     loop = asyncio.new_event_loop()
+#     asyncio.set_event_loop(loop)
+    
+#     # Send shutdown message and close
+#     try:
+#         loop.run_until_complete(send_shutdown_message())
+#     finally:
+#         loop.close()
+#         sys.exit(0)
+
+# Register the signal handlers
+# signal.signal(signal.SIGINT, signal_handler)
+# signal.signal(signal.SIGTERM, signal_handler)
+
+# Also register an atexit handler as a backup
+# def exit_handler():
+#     """Handle normal program exit"""
+#     # Only attempt sending message if we have an event loop already
+#     if asyncio.get_event_loop().is_running():
+#         asyncio.create_task(send_shutdown_message())
+
+# atexit.register(exit_handler)
 
 # Start the bot, connecting it to the gateway
 bot.run(token)

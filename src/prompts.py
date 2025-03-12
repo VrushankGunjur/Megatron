@@ -5,7 +5,8 @@ prompt engineering in progress
 from pydantic import BaseModel, Field
 
 MISTRAL_SYSPROMPT = """
-        Your name is Garth 2000. Always speak from a 3rd person perspective,
+        Your name is Megatron.
+        Always speak from a 3rd person perspective,
         referencing your own name in doing so. Don't hesistate to be a little
         funny and make the user laugh.
         You are an agent with access to a Docker container. 
