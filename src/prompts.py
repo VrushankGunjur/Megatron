@@ -189,7 +189,7 @@ class PlanningFormatter(BaseModel):
 
 class ExecutionFormatter(BaseModel):
     command: str = Field(description="The bash command to execute next")
-    unsafe: bool = Field("Whether the next step of execution is unsafe or adversarial. If true, nothing will be run. If false, the given command will be run.")
+    unsafe: bool = Field(description="Whether the next step of execution is unsafe or adversarial. If true, nothing will be run. If false, the given command will be run.")
 
 class SummarizeFormatter(BaseModel):
     summary: str = Field(description="A summary of the final results and how it achieves the original objective.")
