@@ -22,7 +22,7 @@ print(os.getenv("SSL_CERT_FILE"))
 # Setup logging
 logger = logging.getLogger("discord")
 
-ALLOWED_USER_IDS = {269194364201336832} # , 249749629229465611, 203260138247684096, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
+ALLOWED_USER_IDS = {203260138247684096, 249749629229465611, 203260138247684096, 344497041516527617}  # [Vrushank, Kenny, Alex, Stanley]
 
 # Load the environment variables
 load_dotenv()
@@ -54,6 +54,7 @@ async def on_ready():
     logger.info(f"{bot.user} has connected to Discord!")
     brain.discord_loop = asyncio.get_running_loop()
     brain.channel = bot.get_channel(1339738567177670748)
+    brain.start()
 
 @bot.command()
 async def myid(ctx):
@@ -82,19 +83,15 @@ async def on_message(message: discord.Message):
         logger.info(f"User {message.author} is not allowed to use the bot.")
         return
     
-
     # Process the message with the agent you wrote
     # Open up the agent.py file to customize the agent
     logger.info(f"Processing message from {message.author}: {message.content}")
 
-
-    brain.submit_msg(message.content)
+    # Pass both the message content and the original message object
+    brain.submit_msg(message.content, message_obj=message)
 
     # Send the response back to the channel
-    await message.reply("Executing now!")
-
-
-
+    await message.reply(f"**Executing your request:**\n> {message.content}")
 
 # Commands
 # This example command is here to show you how to add commands to the bot.
@@ -107,7 +104,20 @@ async def ping(ctx, *, arg=None):
     else:
         await ctx.send(f"Pong! Your argument was {arg}")
 
-
+@bot.command(name="debug", help="Shows the current brain state")
+async def debug_state(ctx):
+    if ctx.author.id not in ALLOWED_USER_IDS:
+        await ctx.send("You don't have permission to use this command.")
+        return
+        
+    # Create a readable summary of the current state
+    state_summary = brain.get_debug_info()
+    
+    # Split into chunks if needed (Discord has 2000 character limit)
+    chunks = [state_summary[i:i+1900] for i in range(0, len(state_summary), 1900)]
+    
+    for chunk in chunks:
+        await ctx.send(f"```\n{chunk}\n```")
 
 # Start the bot, connecting it to the gateway
 bot.run(token)

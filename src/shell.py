@@ -67,7 +67,6 @@ class InteractiveShell:
                 
                 # If we have a callback, call it
                 if self.callback:
-                    print('sending line back from output mon')
                     self.callback(line)
                 
                 # Check if this line indicates the shell is ready for input
@@ -103,9 +102,7 @@ class InteractiveShell:
             bool: True if the command was sent successfully
         """
 
-        print('in exec cmd, before lock')
         with self.lock:
-            print('in exec cmd, after lock')
 
             if not self.running or self.process.poll() is not None:
                 error_msg = "[ERROR] Shell is not running"
@@ -117,14 +114,12 @@ class InteractiveShell:
             # Clear the prompt event before sending the command
             self.prompt_ready.clear()
             
-            print('pre try')
             try:
                 # Add a newline if the command doesn't end with one
                 if not command.endswith('\n'):
                     command += '\n'
                 
                 # Send the command
-                print('sending cmd to shell')
                 self.process.stdin.write(command)
                 self.process.stdin.flush()
                 
