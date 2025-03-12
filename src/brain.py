@@ -164,7 +164,7 @@ class Brain:
             if 'PLAN MARKED UNSAFE' in response:
                 plan_message = "This agent command is unsafe. Please try another command."
             else:
-                plan_message = "📋 **Initial Plan:**\n```\n" + response.plan + "\n```"
+                plan_message = "\n\n📋 **Initial Plan:**\n" + response.plan + "\n"
             # Create thread for the first message
             self.send_discord_msg(plan_message)
             
@@ -190,7 +190,7 @@ class Brain:
             self._add_progress_update(f"Executing: {response.command}")
             
             # Send command execution message to Discord
-            command_message = f"⚙️ **Executing Command:**\n```bash\n{response.command}\n```"
+            command_message = f"\n\n⚙️ **Executing Command:**\n```bash\n{response.command}\n```"
             self.send_discord_msg(command_message)
             
             self.shell.execute_command(response.command)
@@ -230,12 +230,12 @@ class Brain:
             response = self.replanning_llm.invoke(messages)
 
             changes_message = (
-                "---\n\n"
+                "\n\n---\n\n"
                 "# 🔄 **Progress Report**\n\n"
                 "## 📝 **Analysis & Reasoning:**\n"
                 f"{response.explanation}\n\n"
                 "## 📋 **Updated Execution Plan:**\n"
-                f"```\n{response.new_plan}\n```\n\n"
+                f"\n{response.new_plan}\n\n\n"
             )
 
             # Send to the thread - no need to create a new one
@@ -416,8 +416,16 @@ class Brain:
                 # Make sure not to exceed Discord message length limits 
                 if len(msg) > 1900:
                     chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
-                    for chunk in chunks:
-                        await self.active_thread.send(chunk)
+                    total_chunks = len(chunks)
+                    
+                    for i, chunk in enumerate(chunks):
+                        # Add header/footer to indicate chunking
+                        if total_chunks > 1:
+                            chunk_header = f"**Message Part {i+1}/{total_chunks}** {'(continued...)' if i > 0 else ''}\n"
+                            chunk_footer = "\n" if i < total_chunks-1 else "\n**End of message**"
+                            await self.active_thread.send(f"{chunk_header}{chunk}{chunk_footer}")
+                        else:
+                            await self.active_thread.send(chunk)
                 else:
                     await self.active_thread.send(msg)
             elif create_thread and self.original_message:
@@ -429,11 +437,20 @@ class Brain:
                 )
                 # Add a small delay to ensure thread is ready
                 await asyncio.sleep(0.5)
+                
                 # Split message if needed
                 if len(msg) > 1900:
                     chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
-                    for chunk in chunks:
-                        await self.active_thread.send(chunk)
+                    total_chunks = len(chunks)
+                    
+                    for i, chunk in enumerate(chunks):
+                        # Add header/footer to indicate chunking
+                        if total_chunks > 1:
+                            chunk_header = f"**Message Part {i+1}/{total_chunks}** {'(continued...)' if i > 0 else ''}\n"
+                            chunk_footer = "\n" if i < total_chunks-1 else "\n**End of message**" 
+                            await self.active_thread.send(f"{chunk_header}{chunk}{chunk_footer}")
+                        else:
+                            await self.active_thread.send(chunk)
                 else:
                     await self.active_thread.send(msg)
             else:
@@ -441,8 +458,16 @@ class Brain:
                 # Split message if needed
                 if len(msg) > 1900:
                     chunks = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
-                    for chunk in chunks:
-                        await self.channel.send(chunk)
+                    total_chunks = len(chunks)
+                    
+                    for i, chunk in enumerate(chunks):
+                        # Add header/footer to indicate chunking
+                        if total_chunks > 1:
+                            chunk_header = f"**Message Part {i+1}/{total_chunks}** {'(continued...)' if i > 0 else ''}\n"
+                            chunk_footer = "\n" if i < total_chunks-1 else "\n**End of message**"
+                            await self.channel.send(f"{chunk_header}{chunk}{chunk_footer}")
+                        else:
+                            await self.channel.send(chunk)
                 else:
                     await self.channel.send(msg)
         except Exception as e:

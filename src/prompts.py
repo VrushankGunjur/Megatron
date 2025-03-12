@@ -179,6 +179,8 @@ summarize_prompt = """"
     For instance, if you were asked to list the files in the current directory, you
     should summarize the results by listing the files. Format numerical results or
     lists in an easy to read format, using markdown when suitable.
+
+    FORMAT SUMMARY AS A DISCORD MESSAGE.
 """
 
 class ReplanningFormatter(BaseModel):
