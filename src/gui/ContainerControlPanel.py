@@ -328,8 +328,7 @@ class ContainerControlPanel(View):
                 "- **Terminal Session**: Start an interactive terminal right in this thread\n"
                 "- **File Manager**: Browse, download and upload files\n"
                 "- **Container Status**: View system resources and status\n"
-                "- **Command History**: See recently executed commands\n\n"
-                "*To end a terminal session, type `exit` in the thread.*"
+                "*To end a terminal session, type `!kill` in the thread.*"
             )
             
             await progress_msg.edit(content="✅ **Help documentation ready!**")

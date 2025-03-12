@@ -155,6 +155,8 @@ class Brain:
                 return "execution"
 
         def planning(state: State) -> State:
+            if self.discord_loop:
+                asyncio.run_coroutine_threadsafe(self._show_thinking(5), self.discord_loop)
             self._add_state_transition("planning", "Started planning phase")
             self.logger.info("Starting planning phase")
             response = self.planning_llm.invoke(state["messages"][-1].content + planning_prompt)
@@ -174,6 +176,8 @@ class Brain:
             }
             
         def execution(state: State):    
+            if self.discord_loop:
+                asyncio.run_coroutine_threadsafe(self._show_thinking(5), self.discord_loop)
             self._add_state_transition("execution", "Executing next command")
 
             messages = state["messages"][-100:] + [HumanMessage(content=execution_prompt)] 
@@ -219,6 +223,8 @@ class Brain:
             }
 
         def replanning(state: State):
+            if self.discord_loop:
+                asyncio.run_coroutine_threadsafe(self._show_thinking(5), self.discord_loop)
             self._add_state_transition("replanning", "Analyzing results and updating plan")
             # wrap in SystemPrompt
             messages = state["messages"][-100:] + [HumanMessage(content="PLAN: " + replanning_prompt)]
@@ -389,6 +395,12 @@ class Brain:
             "updates": self.progress_updates[-10:],  # Last 10 updates
             "time_in_state": (datetime.now() - self.last_progress_time).seconds if self.last_progress_time else 0
         }
+    
+    async def _show_thinking(self, duration=3):
+        """Show typing indicator to indicate the bot is working"""
+        if self.active_thread:
+            async with self.active_thread.typing():
+                await asyncio.sleep(duration)
 
     # Discord message sending with thread support
     def send_discord_msg(self, msg: str, create_thread=False):
