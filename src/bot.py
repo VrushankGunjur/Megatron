@@ -35,6 +35,7 @@ load_dotenv()
 # The message content and members intent must be enabled in the Discord Developer Portal for the bot to work.
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
+bot.remove_command('help')
 
 discord_gui.setup(bot)
 
