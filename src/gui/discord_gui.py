@@ -128,7 +128,7 @@ async def handle_gui_messages(bot, message):
                 # Remove from active sessions but keep shell alive
                 del active_sessions[message.author.id]
                 return True  # Message was handled
-                
+            await message.add_reaction("⏳")
             # Execute the command directly on the shell
             shell = session["shell"]
             command = message.content
@@ -173,6 +173,11 @@ async def handle_gui_messages(bot, message):
                     else:
                         await message.reply("✅ Command executed with no output")
                     
+                    if has_error:
+                        await message.add_reaction("❌")
+                    else:
+                        await message.add_reaction("✅")
+                    
                     # Add command to history for convenience
                     # if command not in command_history:
                     #     command_history.insert(0, command)
@@ -181,8 +186,13 @@ async def handle_gui_messages(bot, message):
                             
                 except Exception as e:
                     await message.reply(f"❌ **Error executing command:**\n```\n{str(e)}\n```")
+                    await message.add_reaction("❌")
                 finally:
                     shell.set_output_callback(original_callback)
+                    try:
+                        await message.remove_reaction("⏳", bot.user)
+                    except:
+                        pass
             return True  # Message was handled
             
         # File upload handler
@@ -191,6 +201,8 @@ async def handle_gui_messages(bot, message):
             if "thread_id" in session and session["thread_id"] != message.channel.id:
                 # Message is in the wrong thread, ignore it
                 return False
+            
+            await message.add_reaction("⏳")
             
             attachment = message.attachments[0]
             
@@ -245,13 +257,17 @@ async def handle_gui_messages(bot, message):
                     thread = bot.get_channel(session["thread_id"])
                     if thread:
                         await thread.send(f"✅ File `{attachment.filename}` uploaded to container at `{target_path}`")
+                        await message.add_reaction("✅")
                     else:
                         await message.channel.send(f"✅ File `{attachment.filename}` uploaded to container at `{target_path}`")
+                        await message.add_reaction("✅")
                 else:
                     await message.channel.send(f"✅ File `{attachment.filename}` uploaded to container at `{target_path}`")
+                    await message.add_reaction("✅")
                 
             except Exception as e:
                 await message.channel.send(f"❌ Error uploading file: {str(e)}")
+                await message.add_reaction("❌")
             finally:
                 shell.set_output_callback(original_callback)
                 # Clean up the session

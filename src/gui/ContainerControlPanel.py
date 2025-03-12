@@ -86,19 +86,12 @@ class ContainerControlPanel(View):
     @discord.ui.button(label="Run Command", style=discord.ButtonStyle.primary, emoji="🔧", row=0)
     async def run_command_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Show initial loading indicator
-        await interaction.response.defer(ephemeral=True)
         status_msg = await self.thread.send("⏳ **Opening command interface...**")
-        
+    
         try:
-            # Wait briefly to simulate loading
-            await asyncio.sleep(0.5)
-            
-            # Update status
-            await status_msg.edit(content="⏳ **Preparing command interface...**")
-            
-            # Create and send modal
+            # Create and send modal directly with the interaction response
             modal = CommandModal(self.brain, self.thread, self.shell)
-            await interaction.followup.send_modal(modal)
+            await interaction.response.send_modal(modal)
             
             # Update status message once the modal is shown
             await status_msg.edit(content="✅ **Command interface ready** - Fill out the form that appeared.")
