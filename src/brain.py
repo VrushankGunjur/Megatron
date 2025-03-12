@@ -175,7 +175,8 @@ class Brain:
             
         def execution(state: State):    
             self._add_state_transition("execution", "Executing next command")
-            messages = state["messages"] + [HumanMessage(content=execution_prompt)] 
+
+            messages = state["messages"][-100:] + [HumanMessage(content=execution_prompt)] 
             response = self.execution_llm.invoke(messages)
             
             if response.unsafe:
@@ -208,19 +209,19 @@ class Brain:
                 self._add_state_transition("error", "Command execution failed")
                 self.send_discord_msg("❌ **Error:**\n" + tool_content_string)
                 return {
-                    "messages": state["messages"],
+                    "messages": messages,
                     "done": True
                 }
 
             return {
-                "messages": state["messages"] + [execution_prompt, AIMessage(content=response.command), tool_output],
+                "messages": messages + [execution_prompt, AIMessage(content=response.command), tool_output],
                 "done": False
             }
 
         def replanning(state: State):
             self._add_state_transition("replanning", "Analyzing results and updating plan")
             # wrap in SystemPrompt
-            messages = state["messages"] + [HumanMessage(content="PLAN: " + replanning_prompt)]
+            messages = state["messages"][-100:] + [HumanMessage(content="PLAN: " + replanning_prompt)]
             response = self.replanning_llm.invoke(messages)
 
             changes_message = (
@@ -241,7 +242,7 @@ class Brain:
                 self._add_progress_update("Plan updated, continuing execution")
 
             return {
-                "messages": state["messages"] + [HumanMessage(content="PLAN: " + replanning_prompt), AIMessage(content=response.new_plan)],
+                "messages": messages + [HumanMessage(content="PLAN: " + replanning_prompt), AIMessage(content=response.new_plan)],
                 "done": response.done
             }
         

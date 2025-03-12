@@ -18,6 +18,8 @@ class InteractiveShell:
         self.lock = threading.Lock()
         self.prompt_ready = threading.Event()
         self.callback = None  # Optional callback for output lines
+        self.shell_ready = False
+        self.cur_job = ""
     
     def start(self):
         """Start the shell and begin monitoring its output"""
@@ -45,6 +47,8 @@ class InteractiveShell:
             daemon=False
         )
         self.output_monitor_thread.start()
+
+        self.shell_ready = True
         
         # Send an initial command to get the prompt
         self.execute_command("echo 'SHELL_READY'")
@@ -73,7 +77,8 @@ class InteractiveShell:
                 # TODO: change this to get the actual prompt line from machine
                 if line.endswith('SHELL_READY') or 'sussybaka' in line:
                     self.prompt_ready.set()
-                
+                    self.shell_ready = True
+
             except (IOError, OSError) as e:
                 # Handle pipe errors (e.g., when process terminates)
                 error_msg = f"[ERROR] Shell output monitoring error: {str(e)}"
@@ -104,8 +109,6 @@ class InteractiveShell:
 
         with self.lock:
 
-
-
             if not self.running:
                 error_msg = "[ERROR] Shell is not running"
                 self.output_buffer.put(error_msg)
@@ -131,6 +134,9 @@ class InteractiveShell:
                 # Send the command
                 self.process.stdin.write(command)
                 self.process.stdin.flush()
+
+                self.cur_job = command
+                self.shell_ready = False
                 
                 # Wait for the prompt if requested
                 if wait_for_prompt:
