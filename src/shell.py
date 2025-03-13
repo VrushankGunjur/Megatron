@@ -114,6 +114,8 @@ class InteractiveShell:
                         self.callback(error_msg)
                     return False
                 print(error_msg)
+                
+                self.callback("shell process has terminated, attempting to restart (will take a second)")
 
                 print('attempting to restart shell')
                 self.process = subprocess.Popen(
