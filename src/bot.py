@@ -54,6 +54,8 @@ bot.brain = brain
 
 active_brains = {}  # Dictionary to track active brain instances by thread ID
 
+default_model = "mistral-large-latest"
+
 # Create a function to send a shutdown message
 async def send_shutdown_message():
     """Send a message when the bot is shutting down"""
@@ -161,7 +163,8 @@ async def agent_command(ctx, *, task=None):
         return
     
     # Create a new Brain instance specifically for this task
-    task_brain = Brain()
+    global default_model
+    task_brain = Brain(default_model=default_model)
     
     # Set up the new brain
     task_brain.discord_loop = asyncio.get_running_loop()
@@ -209,6 +212,16 @@ async def kill_command(ctx):
             await ctx.send("⚠️ **Error terminating task**")
     else:
         await ctx.send("No active task found in this thread.")
+
+@bot.command(name="toggle", help="Toggle between GPT 4o and Mistral models.")
+async def toggle_command(ctx):
+    global default_model
+    if default_model == "mistral-large-latest":
+        default_model = "gpt-4o"
+    else:
+        default_model = "mistral-large-latest"
+    
+    await ctx.send(f"Model toggled to {default_model}")
 
 @bot.command(name="help", help="Show detailed help information about all commands")
 async def help_command(ctx):
@@ -300,6 +313,19 @@ async def help_command(ctx):
             "• Use in a task thread to stop it\n"
             "• Works on agent tasks and GUI sessions\n"
             "• Only available in threads\n"
+            "```"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔄 !toggle",
+        value=(
+            "Toggle between GPT 4o and Mistral models\n"
+            "> `!toggle`\n"
+            "```\n"
+            "• Mistral is faster but less intelligent (default).\n"
+            "• GPT 4o is slower but more intelligent.\n"
             "```"
         ),
         inline=False
@@ -399,7 +425,7 @@ async def about_command(ctx):
         value=(
             "• [Vrushank Gunjur](https://github.com/VrushankGunjur)\n"
             "• Kenny Dao\n"
-            "• Alex\n"
+            "• [Alex Waitz](https://ajwaitz.org)\n"
             "• Stanley"
         ),
         inline=True
