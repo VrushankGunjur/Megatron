@@ -163,13 +163,13 @@ async def agent_command(ctx, *, task=None):
         return
     
     # Create a new Brain instance specifically for this task
-    global default_model
-    task_brain = Brain(default_model=default_model)
+    task_brain = Brain()
     
     # Set up the new brain
     task_brain.discord_loop = asyncio.get_running_loop()
     task_brain.channel = task_thread  # Set the channel directly to the thread
-    task_brain.start()
+    global default_model
+    task_brain.start(default_model=default_model)
     
     # Store this brain in our active_brains dictionary
     active_brains[task_thread.id] = task_brain
