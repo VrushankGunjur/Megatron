@@ -3,7 +3,7 @@ import queue
 import subprocess
 import os
 import signal
-
+import time
 class InteractiveShell:
     """
     Class that provides an interactive shell interface with real-time output.
@@ -107,11 +107,25 @@ class InteractiveShell:
             ret = self.process.poll() 
             if ret is not None:
                 error_msg = f"[ERROR] Shell process has terminated, exited w/ err code {ret}"
-                self.output_buffer.put(error_msg)
+                #self.output_buffer.put(error_msg)
                 if self.callback:
                     self.callback(error_msg)
-                return False
-            
+                # return False
+
+                print('attempting to restart shell')
+                self.process = subprocess.Popen(
+                    self.shell_command,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.PIPE,
+                    universal_newlines=True,
+                    bufsize=1,  # Line buffered
+                    preexec_fn=os.setsid  # Use process group for proper termination
+                )
+                time.sleep(2)
+
+
             # Clear the prompt event before sending the command
             self.prompt_ready.clear()
             
