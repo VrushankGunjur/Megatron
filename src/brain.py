@@ -164,7 +164,7 @@ class Brain:
             def planning_call():
                 return self.planning_llm.invoke(state["messages"][-1].content + planning_prompt)
             
-            response = retry_with_exponential_backoff(planning_call)
+            response = self.retry_with_exponential_backoff(planning_call)
             self.logger.debug(f"Planning response: {response.plan}")
 
             if 'PLAN MARKED UNSAFE' in response:
@@ -189,7 +189,7 @@ class Brain:
             def execution_call():
                 return self.execution_llm.invoke(messages)
             
-            response = retry_with_exponential_backoff(execution_call)
+            response = self.retry_with_exponential_backoff(execution_call)
             
             if response.unsafe:
                 self.logger.info("[PLAN MARKED UNSAFE] {}")
@@ -239,7 +239,7 @@ class Brain:
             def replanning_call():
                 return self.replanning_llm.invoke(messages)
             
-            response = retry_with_exponential_backoff(replanning_call)
+            response = self.retry_with_exponential_backoff(replanning_call)
 
             changes_message = (
                 "\n\n---\n\n"
@@ -270,7 +270,7 @@ class Brain:
             def summarize_call():
                 return self.summarize_llm.invoke("\n".join([state["messages"][i].content for i in range(len(state["messages"]))]) + summarize_prompt)
             
-            response = retry_with_exponential_backoff(summarize_call)
+            response = self.retry_with_exponential_backoff(summarize_call)
             self.logger.debug(f"Summarization response: {response.summary}")
 
             summary_message = "📋 **Task Summary:**\n```\n" + response.summary + "\n```"
@@ -354,7 +354,7 @@ class Brain:
                             config
                         )
                     
-                    output = retry_with_exponential_backoff(graph_call)
+                    output = self.retry_with_exponential_backoff(graph_call)
                     self.logger.info("Graph execution completed")
                     self._add_state_transition("idle", "Task processing complete")
                 except Exception as e:
@@ -616,23 +616,23 @@ class Brain:
         
         return True
 
-def retry_with_exponential_backoff(self, func, max_retries=5):
-    for i in range(max_retries):
-        try:
-            return func()
-        except Exception as e:
-            if "rate_limit" in str(e).lower():
-                wait_time = 2 ** i
-                self.logger.warning(f"API Rate limit hit, waiting {wait_time}s before retry {i+1}/{max_retries}")
-                
-                # Notify user in Discord
-                if i > 0:  # Only notify after first retry
-                    self.send_discord_msg(f"⚠️ ** API Rate limit reached** - Waiting {wait_time}s before retry {i+1}/{max_retries}")
-                
-                time.sleep(wait_time)
-            else:
-                raise
-    error_msg = f"🛑 **Maximum retries exceeded** - Unable to complete operation after {max_retries} attempts. Rerun your command in a few minutes!"
-    self.logger.error(error_msg)
-    self.send_discord_msg(error_msg)
-    raise Exception("Max retries exceeded")
+    def retry_with_exponential_backoff(self, func, max_retries=5):
+        for i in range(max_retries):
+            try:
+                return func()
+            except Exception as e:
+                if "rate_limit" in str(e).lower():
+                    wait_time = 2 ** i
+                    self.logger.warning(f"API Rate limit hit, waiting {wait_time}s before retry {i+1}/{max_retries}")
+                    
+                    # Notify user in Discord
+                    if i > 0:  # Only notify after first retry
+                        self.send_discord_msg(f"⚠️ ** API Rate limit reached** - Waiting {wait_time}s before retry {i+1}/{max_retries}")
+                    
+                    time.sleep(wait_time)
+                else:
+                    raise
+        error_msg = f"🛑 **Maximum retries exceeded** - Unable to complete operation after {max_retries} attempts. Rerun your command in a few minutes!"
+        self.logger.error(error_msg)
+        self.send_discord_msg(error_msg)
+        raise Exception("Max retries exceeded")
