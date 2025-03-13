@@ -27,6 +27,8 @@ import os
 
 from Logging import LoggingCallbackHandler
 
+CONTEXT_WINDOW = 25
+
 class State(TypedDict):
     # Messages have the type "list". The `add_messages` function
     # in the annotation defines how this state key should be updated
@@ -176,7 +178,7 @@ class Brain:
         def execution(state: State):    
             self._add_state_transition("execution", "Executing next command")
 
-            messages = state["messages"][-100:] + [HumanMessage(content=execution_prompt)] 
+            messages = state["messages"][-CONTEXT_WINDOW:] + [HumanMessage(content=execution_prompt)] 
             response = self.execution_llm.invoke(messages)
             
             if response.unsafe:
@@ -221,7 +223,7 @@ class Brain:
         def replanning(state: State):
             self._add_state_transition("replanning", "Analyzing results and updating plan")
             # wrap in SystemPrompt
-            messages = state["messages"][-100:] + [HumanMessage(content="PLAN: " + replanning_prompt)]
+            messages = state["messages"][-CONTEXT_WINDOW:] + [HumanMessage(content="PLAN: " + replanning_prompt)]
             response = self.replanning_llm.invoke(messages)
 
             changes_message = (
@@ -361,8 +363,8 @@ class Brain:
         self.last_progress_time = datetime.now()
         
         # Keep only the most recent 100 updates
-        if len(self.progress_updates) > 100:
-            self.progress_updates = self.progress_updates[-100:]
+        if len(self.progress_updates) > CONTEXT_WINDOW:
+            self.progress_updates = self.progress_updates[-CONTEXT_WINDOW:]
         return update
         
     # Check if we should send a progress update to Discord
