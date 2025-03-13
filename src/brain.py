@@ -14,12 +14,10 @@ from langchain.schema import SystemMessage
 from langchain_core.messages import AIMessage, HumanMessage
 
 from langchain_mistralai import ChatMistralAI
+from langchain_openai import ChatOpenAI
 from langchain_core.rate_limiters import InMemoryRateLimiter
 
 import logging
-
-# from prompts import planning_prompt, replanning_prompt, execution_prompt, summarize_prompt
-# from prompts import ReplanningFormatter, PlanningFormatter, ExecutionFormatter, SummarizeFormatter
 
 from prompts import *
 
@@ -139,9 +137,10 @@ class Brain:
             check_every_n_seconds=0.1,  # Wake up every 100 ms to check whether allowed to make a request,
             max_bucket_size=10,  # Controls the maximum burst size.
         )
-        self.base_model_type = "mistral-large-latest"
+        self.base_model_type = "gpt-4o"
+        self.llm = ChatOpenAI(model=self.base_model_type, rate_limiter=self.rate_limiter)
         # self.base_model_type = "codestral-latest"
-        self.llm = ChatMistralAI(model=self.base_model_type, rate_limiter=self.rate_limiter)
+        # self.llm = ChatMistralAI(model=self.base_model_type, rate_limiter=self.rate_limiter)
 
         self.planning_llm = self.llm.with_structured_output(PlanningFormatter)
         self.execution_llm = self.llm.with_structured_output(ExecutionFormatter)
@@ -157,6 +156,8 @@ class Brain:
                 return "execution"
 
         def planning(state: State) -> State:
+            if self.discord_loop:
+                asyncio.run_coroutine_threadsafe(self._show_thinking(5), self.discord_loop)
             self._add_state_transition("planning", "Started planning phase")
             self.logger.info("Starting planning phase")
             response = self.planning_llm.invoke(state["messages"][-1].content + planning_prompt)
@@ -165,7 +166,7 @@ class Brain:
             if 'PLAN MARKED UNSAFE' in response:
                 plan_message = "This agent command is unsafe. Please try another command."
             else:
-                plan_message = "📋 **Initial Plan:**\n```\n" + response.plan + "\n```"
+                plan_message = "\n\n📋 **Initial Plan:**\n" + response.plan + "\n"
             # Create thread for the first message
             self.send_discord_msg(plan_message)
             
@@ -176,6 +177,8 @@ class Brain:
             }
             
         def execution(state: State):    
+            if self.discord_loop:
+                asyncio.run_coroutine_threadsafe(self._show_thinking(5), self.discord_loop)
             self._add_state_transition("execution", "Executing next command")
 
             messages = state["messages"][-CONTEXT_WINDOW:] + [HumanMessage(content=execution_prompt)] 
@@ -189,7 +192,7 @@ class Brain:
             self._add_progress_update(f"Executing: {response.command}")
             
             # Send command execution message to Discord
-            command_message = f"⚙️ **Executing Command:**\n```bash\n{response.command}\n```"
+            command_message = f"\n\n⚙️ **Executing Command:**\n```bash\n{response.command}\n```"
             self.send_discord_msg(command_message)
             
             self.shell.execute_command(response.command)
@@ -221,18 +224,20 @@ class Brain:
             }
 
         def replanning(state: State):
+            if self.discord_loop:
+                asyncio.run_coroutine_threadsafe(self._show_thinking(5), self.discord_loop)
             self._add_state_transition("replanning", "Analyzing results and updating plan")
             # wrap in SystemPrompt
             messages = state["messages"][-CONTEXT_WINDOW:] + [HumanMessage(content="PLAN: " + replanning_prompt)]
             response = self.replanning_llm.invoke(messages)
 
             changes_message = (
-                "---\n\n"
+                "\n\n---\n\n"
                 "# 🔄 **Progress Report**\n\n"
                 "## 📝 **Analysis & Reasoning:**\n"
                 f"{response.explanation}\n\n"
                 "## 📋 **Updated Execution Plan:**\n"
-                f"```\n{response.new_plan}\n```\n\n"
+                f"\n{response.new_plan}\n\n\n"
             )
 
             # Send to the thread - no need to create a new one
@@ -391,34 +396,138 @@ class Brain:
             "updates": self.progress_updates[-10:],  # Last 10 updates
             "time_in_state": (datetime.now() - self.last_progress_time).seconds if self.last_progress_time else 0
         }
+    
+    async def _show_thinking(self, duration=3):
+        """Show typing indicator to indicate the bot is working"""
+        if self.active_thread:
+            async with self.active_thread.typing():
+                await asyncio.sleep(duration)
 
     # Discord message sending with thread support
     def send_discord_msg(self, msg: str, create_thread=False):
         assert self.discord_loop is not None and self.discord_loop.is_running(), \
                 "Trying to send msg before discord loop is initialized"
         
-        self.logger.info(f"Brain sending message to discord: `{msg}`")
+        self.logger.info(f"Brain sending message to discord: `{msg}...`")
         asyncio.run_coroutine_threadsafe(self._send_discord_msg(msg, create_thread), self.discord_loop)
 
     async def _send_discord_msg(self, msg: str, create_thread=False):
-        self.logger.info(f"Channel: {self.channel}")
-        self.logger.info(f"Event loop: {self.discord_loop}")
-        self.logger.info(f"Brain sending message to discord: `{msg}`")
+        try:
+            # Determine the target for sending messages
+            target = None
+            if self.active_thread:
+                target = self.active_thread
+            elif create_thread and self.original_message:
+                # Create a new thread from the original message
+                task_name = self.original_message.content[:50] + "..." if len(self.original_message.content) > 50 else self.original_message.content
+                self.active_thread = await self.original_message.create_thread(
+                    name=f"Task: {task_name}", 
+                    auto_archive_duration=60  # Minutes until thread auto-archives
+                )
+                # Add a small delay to ensure thread is ready
+                await asyncio.sleep(0.5)
+                target = self.active_thread
+            else:
+                target = self.channel
+                
+            # Smart chunking that preserves formatting
+            if len(msg) > 1900:
+                chunks = self._smart_chunk_message(msg)
+                total_chunks = len(chunks)
+                
+                for i, chunk in enumerate(chunks):
+                    # Add header/footer to indicate chunking with improved styling
+                    if total_chunks > 1:
+                    #     # First chunk gets special header with message start indicator
+                    #     if i == 0:
+                    #         chunk_header = f"📄 **Message ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
+                    #     # Middle chunks get continuation indicator
+                    #     elif i < total_chunks - 1:
+                    #         chunk_header = f"📄 **Continued ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
+                    #     # Last chunk gets final part indicator
+                    #     else:
+                    #         chunk_header = f"📄 **Final Part ({i+1}/{total_chunks})** ━━━━━━━━━━━━━━━\n\n"
+                        
+                    #     # Footer varies by position
+                    #     if i < total_chunks - 1:
+                    #         chunk_footer = "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ *continued in next message* ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+                    #     else:
+                    #         chunk_footer = "\n\n━━━━━━━━━━━━━━━ **End of Message** ━━━━━━━━━━━━━━━"
+                        
+                        await target.send(f"{chunk}")
+                    else:
+                        await target.send(chunk)
+            else:
+                await target.send(msg)
+        except Exception as e:
+            self.logger.error(f"Error sending message to Discord: {str(e)}")
+            # Try a simplified message as fallback
+            await self.channel.send(f"Error displaying formatted message. Please check logs.")
+
+    def _smart_chunk_message(self, msg: str, chunk_size=1800):
+        """
+        Intelligently split a message into chunks that preserve formatting
+        """
+        chunks = []
+        remaining = msg
         
-        if self.active_thread:
-            # If we have an active thread, send there
-            await self.active_thread.send(msg)
-        elif create_thread and self.original_message:
-            # Create a new thread from the original message
-            task_name = self.original_message.content[:50] + "..." if len(self.original_message.content) > 50 else self.original_message.content
-            self.active_thread = await self.original_message.create_thread(
-                name=f"Task: {task_name}", 
-                auto_archive_duration=60  # Minutes until thread auto-archives
-            )
-            await self.active_thread.send(msg)
-        else:
-            # Default fallback - send to the channel
-            await self.channel.send(msg)
+        while len(remaining) > chunk_size:
+            # Try to find good break points in descending order of preference
+            
+            # 1. Look for double newlines (paragraph breaks)
+            split_point = remaining[:chunk_size].rfind('\n\n')
+            
+            # 2. Look for single newlines if no paragraph break found
+            if split_point == -1 or split_point < chunk_size // 2:
+                split_point = remaining[:chunk_size].rfind('\n')
+            
+            # 3. Look for periods followed by space (end of sentences)
+            if split_point == -1 or split_point < chunk_size // 2:
+                # Find last period+space before limit
+                for i in range(min(chunk_size - 1, len(remaining) - 1), chunk_size // 2, -1):
+                    if remaining[i-1:i+1] == '. ' or remaining[i-1:i+1] == '! ' or remaining[i-1:i+1] == '? ':
+                        split_point = i
+                        break
+            
+            # 4. Fallback: just split at a space
+            if split_point == -1 or split_point < chunk_size // 2:
+                split_point = remaining[:chunk_size].rfind(' ')
+                
+            # 5. Last resort: hard cut
+            if split_point == -1:
+                split_point = chunk_size
+            
+            # Check for unclosed code blocks
+            chunk = remaining[:split_point]
+            code_block_count = chunk.count('```')
+            
+            # If we have unclosed code blocks, close them and reopen in next chunk
+            if code_block_count % 2 != 0:
+                # Add closing code block to current chunk
+                chunk += "\n```"
+                
+                # Next chunk will need to reopen the code block
+                # Get the language if specified
+                code_blocks = remaining[:split_point].split('```')
+                lang = ""
+                if len(code_blocks) > 1 and code_blocks[1].strip() and ' ' not in code_blocks[1].split('\n')[0]:
+                    lang = code_blocks[1].split('\n')[0]
+                
+                # Save current chunk
+                chunks.append(chunk)
+                
+                # Prepare next chunk with reopened code block
+                remaining = f"```{lang}\n{remaining[split_point:]}"
+            else:
+                # Normal case - just split at the chosen point
+                chunks.append(chunk)
+                remaining = remaining[split_point:]
+        
+        # Add remaining content as the last chunk
+        if remaining:
+            chunks.append(remaining)
+        
+        return chunks
 
     def get_debug_info(self):
         """Returns a formatted string with current brain state for debugging"""

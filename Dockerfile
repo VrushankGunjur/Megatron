@@ -11,8 +11,6 @@ RUN apt-get update && apt-get install -y sudo
 # Copy the current directory contents into the container at /app
 COPY . .
 
-ENV DISCORD_TOKEN="MTMzOTczNzAzMjE4MzkwNjM1OA.GRg4CM.7nct2O53xKfyBzlgpkTsUsofN0HpTE-GsmGNG4"
-ENV MISTRAL_API_KEY="GG92nvhLbocT2jn7YeDmRSK0KmURoGIC"
 ENV PS1="sussybaka"
 
 # Install any dependencies

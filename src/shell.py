@@ -95,18 +95,6 @@ class InteractiveShell:
         self.callback = callback_function
     
     def execute_command(self, command, wait_for_prompt=True, timeout=10):
-        """
-        Send a command to the shell and optionally wait for the prompt.
-        
-        Args:
-            command (str): The command to execute
-            wait_for_prompt (bool): Whether to wait for a shell prompt before returning
-            timeout (float): Maximum time to wait for the prompt
-            
-        Returns:
-            bool: True if the command was sent successfully
-        """
-
         with self.lock:
 
             if not self.running:
@@ -153,16 +141,6 @@ class InteractiveShell:
                 return False
     
     def get_output(self, block=False, timeout=None):
-        """
-        Get a line from the output buffer.
-        
-        Args:
-            block (bool): If True, block until a line is available
-            timeout (float): If blocking, wait up to timeout seconds
-            
-        Returns:
-            str or None: A line of output or None if no output is available
-        """
         try:
             return self.output_buffer.get(block=block, timeout=timeout)
         except queue.Empty:
