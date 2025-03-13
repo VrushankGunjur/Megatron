@@ -387,7 +387,7 @@ async def about_command(ctx):
             "• Python with discord.py\n"
             "• Docker containerization\n"
             "• LangChain & LangGraph\n"
-            "• OpenAI integration\n"
+            "• Mistral integration\n"
             "• Interactive shell execution"
         ),
         inline=True
