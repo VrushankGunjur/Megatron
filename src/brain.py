@@ -137,10 +137,11 @@ class Brain:
             check_every_n_seconds=0.1,  # Wake up every 100 ms to check whether allowed to make a request,
             max_bucket_size=10,  # Controls the maximum burst size.
         )
-        self.base_model_type = "gpt-4o"
-        self.llm = ChatOpenAI(model=self.base_model_type, rate_limiter=self.rate_limiter)
+        self.base_model_type = "mistral-large-latest"
+        # self.base_model_type = "gpt-4o"
+        # self.llm = ChatOpenAI(model=self.base_model_type, rate_limiter=self.rate_limiter)
         # self.base_model_type = "codestral-latest"
-        # self.llm = ChatMistralAI(model=self.base_model_type, rate_limiter=self.rate_limiter)
+        self.llm = ChatMistralAI(model=self.base_model_type, rate_limiter=self.rate_limiter)
 
         self.planning_llm = self.llm.with_structured_output(PlanningFormatter)
         self.execution_llm = self.llm.with_structured_output(ExecutionFormatter)
