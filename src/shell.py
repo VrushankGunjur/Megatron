@@ -20,7 +20,8 @@ class InteractiveShell:
         self.callback = None  # Optional callback for output lines
         self.shell_ready = False
         self.cur_job = ""
-    
+        self.num_failures = 0
+
     def start(self):
         """Start the shell and begin monitoring its output"""
 
@@ -106,11 +107,13 @@ class InteractiveShell:
 
             ret = self.process.poll() 
             if ret is not None:
-                error_msg = f"[ERROR] Shell process has terminated, exited w/ err code {ret}"
-                #self.output_buffer.put(error_msg)
-                if self.callback:
-                    self.callback(error_msg)
-                # return False
+                error_msg = f"[ERROR] Shell process has terminated, exited w/ err code {ret} after too many failed restart attempts"
+                if self.num_failures > 6:
+                    self.output_buffer.put(error_msg)
+                    if self.callback:
+                        self.callback(error_msg)
+                    return False
+                print(error_msg)
 
                 print('attempting to restart shell')
                 self.process = subprocess.Popen(
@@ -124,6 +127,7 @@ class InteractiveShell:
                     preexec_fn=os.setsid  # Use process group for proper termination
                 )
                 time.sleep(2)
+                self.num_failures += 1
 
 
             # Clear the prompt event before sending the command
